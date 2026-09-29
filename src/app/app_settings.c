@@ -184,6 +184,7 @@ void settings_initialize(app_settings_t *config, char *conf_dir) {
     config->show_stats_compact = false;
     config->show_logs = false;
     config->stick_deadzone = 7;
+    config->stick_drift_correction = false;
     config->client_refresh_rate_x100 = 0;
     config->use_ntsc_refresh = false;
     config->auto_adjust_bitrate = false;
@@ -270,6 +271,7 @@ bool settings_save(app_settings_t *config) {
 #endif
     ini_write_bool(fp, "swap_abxy", config->swap_abxy);
     ini_write_int(fp, "stick_deadzone", config->stick_deadzone);
+    ini_write_bool(fp, "stick_drift_correction", config->stick_drift_correction);
     ini_write_bool(fp, "syskey_capture", config->syskey_capture);
     ini_write_bool(fp, "report_gamepad_battery", config->report_gamepad_battery);
 
@@ -518,6 +520,8 @@ static int settings_parse(app_settings_t *config, const char *section, const cha
         } else if (config->stick_deadzone > 100) {
             config->stick_deadzone = 100;
         }
+    } else if (INI_NAME_MATCH("stick_drift_correction")) {
+        config->stick_drift_correction = INI_IS_TRUE(value);
     } else if (INI_NAME_MATCH("swap_abxy")) {
         config->swap_abxy = INI_IS_TRUE(value);
     } else if (INI_NAME_MATCH("report_gamepad_battery")) {

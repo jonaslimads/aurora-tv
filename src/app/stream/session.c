@@ -311,6 +311,7 @@ void session_config_init(app_t *app, session_config_t *config, const SERVER_DATA
         config->stick_deadzone = (uint8_t) app_config->stick_deadzone;
     }
     config->report_gamepad_battery = app_config->report_gamepad_battery;
+    config->stick_drift_correction = app_config->stick_drift_correction;
     config->auto_adjust_bitrate = app_config->auto_adjust_bitrate;
     config->abr_mode = app_config->abr_mode;
 

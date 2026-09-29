@@ -47,6 +47,8 @@ void session_input_init(stream_input_t *input, session_t *session, app_input_t *
     input->pointerGestureStartY = 0;
     input->view_only = config->view_only;
     input->stick_deadzone = config->stick_deadzone;
+    input->stick_drift_correction = config->stick_drift_correction;
+    input->gamepad_state_refresh_ms = 0;
     input->report_gamepad_battery = config->report_gamepad_battery;
     input->no_sdl_mouse = config->hardware_mouse;
     input->touchpad_mode = (uint8_t) config->touchpad_mode;
@@ -97,6 +99,10 @@ void session_input_started(stream_input_t *input) {
         if (gamepad == NULL) {
             continue;
         }
+        /* A new stream starts from a centred stick; a hold carried over from the
+         * previous session would send a direction nobody is holding. */
+        gamepad_stick_filter_reset(&gamepad->left_stick_filter);
+        gamepad_stick_filter_reset(&gamepad->right_stick_filter);
         stream_input_send_gamepad_arrive(input, gamepad);
     }
 }

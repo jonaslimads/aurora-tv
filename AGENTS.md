@@ -78,6 +78,13 @@ Cross-cutting mechanics worth knowing before touching anything:
 - **Event bus** (`util/bus.h`): cross-thread work reaches the main thread as
   `SDL_USEREVENT`s. Dispatch runs inside `SDL_FilterEvents`, which holds SDL's event-queue
   mutex — long work in a bus callback stalls every thread that pushes events.
+- **Gamepad sticks** (`input/gamepad_stick_filter.h`): webOS has no DualShock driver, so a DS4 on
+  the TV is read without its centre calibration and without the evdev `flat` filter Linux applies —
+  that is why drift and held-direction dropouts show up on Aurora and not on a PC client. The plain
+  deadzone lives in `stream/input/session_gamepad.c`; the opt-in correction (deadzone + rescale +
+  dropout hold) is `gamepad_stick_filter.c`, driven from `stream_input_filter_gamepad_sticks` and
+  expired from `app_process_events` via `session_update_gamepad_stick_holds`, because axis reports
+  only arrive when the stick moves.
 - **Timing units**: `DECODE_UNIT.receiveTimeUs`/`enqueueTimeUs`/`presentationTimeUs` are
   microseconds and share an epoch with `LiGetMicroseconds()` only because both resolve to
   `PltGetMicroseconds()`. Re-verify on every moonlight-common-c bump.
