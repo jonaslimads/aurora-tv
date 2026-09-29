@@ -18,6 +18,7 @@
 #define USER_TOGGLE_STATS_PIN 534
 #define USER_TOGGLE_VMOUSE 535
 #define USER_APP_FOREGROUND 536
+#define USER_TOGGLE_SOFT_KEYBOARD 537
 
 
 extern unsigned int app_userevent_remotebutton;

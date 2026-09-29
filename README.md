@@ -43,10 +43,15 @@ Unofficial fork of [Moonlight TV](https://github.com/mariotaku/moonlight-tv) for
 
 | Gesture | Action |
 |---------|--------|
+| **L1 + R3** (Xbox: LB + RS) | Toggle virtual mouse |
+| **R1 + R3** (Xbox: RB + RS) | Toggle on-screen keyboard |
+| **Circle / B** while keyboard is open | Close the keyboard |
 | **Hold Select/Back 4s** | Toggle pinned performance stats |
 | **Y / Triangle** (virtual mouse on) | Open on-screen keyboard |
 
-Full keyboard: stream overlay, Magic Remote **BLUE**, or gamepad **Y** while virtual mouse is active. With the keyboard open: **Y** = Space, **LT** = abc/`&123`, **LB/RB** = Left/Right. Virtual mouse: stream overlay button (or enable in Settings → Input to start enabled); right stick = cursor, left stick = scroll, LT/RT = mouse buttons.
+Aurora handles these shortcuts itself and drops the button presses instead of passing them to the host, so closing the keyboard (or toggling a mode) never also cancels something inside the game.
+
+Full keyboard: stream overlay, Magic Remote **BLUE**, gamepad **R1 + R3**, or **Y** while virtual mouse is active. With the keyboard open: **Y** = Space, **LT** = abc/`&123`, **LB/RB** = Left/Right, **Circle/B** = close. Virtual mouse: stream overlay button or **L1 + R3** (or enable in Settings → Input to start enabled); right stick = cursor, left stick = scroll, LT/RT = mouse buttons.
 
 Details, hotkey layout, and stats field reference: [webOS build guide](docs/BUILD_WEBOS.md).
 

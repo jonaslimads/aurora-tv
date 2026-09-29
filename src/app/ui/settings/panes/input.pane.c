@@ -94,7 +94,7 @@ static lv_obj_t *create_obj(lv_fragment_t *self, lv_obj_t *container) {
 
     pref_checkbox(view, locstr("Virtual mouse"), &app_configuration->virtual_mouse, false);
     pref_desc_label(view, locstr("When enabled, virtual mouse starts active at the beginning of a stream. "
-                                 "Toggle anytime from the stream overlay Virtual Mouse button. "
+                                 "Toggle anytime with L1 + R3 or the stream overlay Virtual Mouse button. "
                                  "Right stick moves the cursor, left stick scrolls, LT/RT are left/right mouse buttons."),
                     false);
 

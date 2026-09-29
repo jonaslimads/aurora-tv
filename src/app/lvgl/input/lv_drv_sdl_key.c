@@ -53,6 +53,8 @@ static bool swallow_duplicate_nav_press(uint32_t key, bool pressed) {
 
 static bool read_keyboard(app_ui_input_t *input, const SDL_KeyboardEvent *event, lv_drv_sdl_key_t *state);
 
+static bool gamepad_hotkey_consumed(app_t *app, const SDL_Event *event);
+
 static bool read_event(const SDL_Event *event, lv_drv_sdl_key_t *state);
 
 /** Left-stick edge → one LVGL key (punktfunk-style menu nav). */
@@ -225,7 +227,13 @@ static void sdl_input_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
         if (!streaming_soft_keyboard_shown()) {
             kbd_lt_held = false;
         }
-        if (streaming_soft_keyboard_shown() && e.type == SDL_CONTROLLERAXISMOTION
+        /* Aurora's gamepad shortcuts (L1+R3, R1+R3) are resolved ahead of the
+         * overlay, the soft keyboard and host forwarding alike, so a shortcut can
+         * never also act inside the streamed game. */
+        if (gamepad_hotkey_consumed(app, &e)) {
+            state->state = LV_INDEV_STATE_RELEASED;
+            handled_modal = true;
+        } else if (streaming_soft_keyboard_shown() && e.type == SDL_CONTROLLERAXISMOTION
             && e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT) {
             bool down = e.caxis.value > 16000;
             if (down != kbd_lt_held) {
@@ -255,7 +263,6 @@ static void sdl_input_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
             if (streaming_soft_keyboard_shown() && app->session != NULL) {
                 stream_input_t *si = session_get_input(app->session);
                 short vk = 0;
-                bool close_kbd = false;
                 /* LB / RB → Left / Right (Windows OSK badges) */
                 if (e.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
                     soft_keyboard_gamepad_shortcut(SOFT_KBD_GP_ARROW_LEFT, pressed);
@@ -282,18 +289,19 @@ static void sdl_input_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
                     case NAVKEY_START:        /* Start: Enter */
                         vk = VK_RETURN;
                         break;
-                    case NAVKEY_CANCEL:       /* B: Escape + close */
-                        vk = VK_ESCAPE;
-                        if (pressed) close_kbd = true;
+                    case NAVKEY_CANCEL:       /* B/Circle: close the keyboard, stop here */
+                        /* Escape used to go to the host as well, so dismissing the
+                         * keyboard also cancelled the text entry it was opened for. */
+                        if (pressed) {
+                            bus_pushevent(USER_CLOSE_SOFT_KEYBOARD, NULL, NULL);
+                        }
+                        handled_modal = true;
                         break;
                     default:
                         break;
                 }
                 if (vk != 0) {
                     stream_input_send_key_event(si, vk, pressed, 0);
-                    if (close_kbd) {
-                        bus_pushevent(USER_CLOSE_SOFT_KEYBOARD, NULL, NULL);
-                    }
                     handled_modal = true;
                 }
                 }
@@ -405,6 +413,13 @@ static bool read_event(const SDL_Event *event, lv_drv_sdl_key_t *state) {
     (void) 0;
     state->state = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
     return true;
+}
+
+static bool gamepad_hotkey_consumed(app_t *app, const SDL_Event *event) {
+    if (app->session == NULL || (event->type != SDL_CONTROLLERBUTTONDOWN && event->type != SDL_CONTROLLERBUTTONUP)) {
+        return false;
+    }
+    return stream_input_gamepad_hotkey(session_get_input(app->session), &event->cbutton);
 }
 
 static bool read_keyboard(app_ui_input_t *input, const SDL_KeyboardEvent *event, lv_drv_sdl_key_t *state) {

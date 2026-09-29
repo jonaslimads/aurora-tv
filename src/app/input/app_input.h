@@ -32,6 +32,10 @@ typedef struct app_gamepad_state_t {
     short leftStickX, leftStickY;
     short rightStickX, rightStickY;
     int buttons;
+    /** Shoulder/stick-click buttons seen by the client hotkey handler, see stream_input_gamepad_hotkey. */
+    uint8_t hotkey_buttons;
+    /** Set by the R3 that completed an Aurora hotkey, cleared when every chord button is released. */
+    bool hotkey_chord_active;
 #if !SDL_VERSION_ATLEAST(2, 0, 9)
     SDL_Haptic *haptic;
     int haptic_effect_id;

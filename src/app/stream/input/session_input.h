@@ -95,6 +95,16 @@ void stream_input_send_key_event(stream_input_t *input, short keyCode, bool keyD
 
 void stream_input_handle_cbutton(stream_input_t *input, const SDL_ControllerButtonEvent *event);
 
+/**
+ * Aurora's own gamepad shortcuts: L1+R3 toggles the virtual mouse, R1+R3 toggles
+ * the on-screen keyboard. Call this before any other use of a button event -- the
+ * chord has to be resolved and swallowed before forwarding, otherwise the same
+ * press also acts inside the streamed game.
+ *
+ * @return true when Aurora consumed the event (do not forward, do not map to a key)
+ */
+bool stream_input_gamepad_hotkey(stream_input_t *input, const SDL_ControllerButtonEvent *event);
+
 void stream_input_handle_caxis(stream_input_t *input, const SDL_ControllerAxisEvent *event);
 
 void stream_input_handle_csensor(stream_input_t *input, const SDL_ControllerSensorEvent *event);
