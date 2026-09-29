@@ -1,0 +1,1 @@
+add_unit_test(test_gamepad_stick_filter test_gamepad_stick_filter.c)

@@ -85,3 +85,10 @@ void session_update_touchpad_tap_hold(session_t *session) {
         stream_input_update_touchpad_tap_hold(input);
     }
 }
+
+void session_update_gamepad_stability(session_t *session) {
+    if (!session_accepting_input(session)) {
+        return;
+    }
+    stream_input_update_gamepad_stability(&session->input);
+}

@@ -55,6 +55,27 @@ Full keyboard: stream overlay, Magic Remote **BLUE**, gamepad **R1 + R3**, or **
 
 Details, hotkey layout, and stats field reference: [webOS build guide](docs/BUILD_WEBOS.md).
 
+## Worn sticks (drift)
+
+A DualShock 4 plugged into the TV is read by webOS through the generic HID path: there is no
+DualShock driver, so the pad is used without its own centre calibration and without the deadzone
+the Linux kernel applies on a PC. Sticks that are already worn then drift slowly on their own,
+and a direction held at the end of its travel can blink out for one report — the character
+hesitates while the thumb is still pushing.
+
+Enable **Settings → Input → Stick drift correction** (and raise the deadzone until the idle stick
+stops moving the game). Aurora then cuts the deadzone *and* stretches what is left over the whole
+range, so the stick still reaches full deflection and the edge of the deadzone fades instead of
+stepping, and it keeps a held direction when a report collapses back to the centre, releasing it
+as soon as the pad confirms the change. While the toggle is on, Aurora also repeats the state of a
+controller that is doing something — a stick pushed to the end of its travel sends nothing at all,
+so without that a missed controller arrival would leave the direction released. The toggle applies
+to the next stream; leave it off to keep the plain deadzone behaviour.
+
+To check whether the pad really is dropping reports on your set, turn on the on-screen log overlay
+in **Settings → Experimental**: with drift correction active Aurora logs every report it held back
+and every direction it released when a hold expired.
+
 ## Install
 
 - [webOS Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel) — repo: `https://raw.githubusercontent.com/GuiDev1994/aurora-tv/main/repo.json`

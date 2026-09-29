@@ -74,6 +74,8 @@ typedef struct session_config_t {
     bool touchpad_multitouch;
     bool touchpad_natural_scroll;
     uint8_t stick_deadzone;
+    /** Settings -> Input -> Stick drift correction, see gamepad_stick_filter.h. */
+    bool stick_drift_correction;
     bool report_gamepad_battery;
     bool auto_adjust_bitrate;
     int abr_mode;

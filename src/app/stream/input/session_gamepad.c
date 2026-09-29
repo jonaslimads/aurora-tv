@@ -23,6 +23,13 @@
 #define HOTKEY_BTN_RB 0x2u
 #define HOTKEY_BTN_R3 0x4u
 
+/* The host only ever learns a gamepad state from a packet. A stick pushed to the
+ * end of its travel produces no further reports at all, so a missed arrival, a
+ * webOS device that flaps or any host-side reset leaves the direction released
+ * until the thumb moves again - which is the "not being held" hitch. Repeat the
+ * state of a pad that is doing something. */
+#define GAMEPAD_STATE_REFRESH_MS 250u
+
 #define TOUCHPAD_SECONDARY_CORNER 0.75f
 #define TOUCHPAD_TAP_THRESHOLD_MS 300u
 #define TOUCHPAD_SINGLE_TAP_SLOP_SQ (0.015f * 0.015f)
@@ -75,6 +82,13 @@ static bool sensor_state_needs_update(const app_gamepad_sensor_state_t *state, u
 static bool vmouse_intercepted(stream_input_t *input, const app_gamepad_state_t *gamepad);
 
 static bool filter_deadzone_2axis(stream_input_t *input, short *x, short *y);
+
+static uint16_t gamepad_stick_deadzone_units(uint8_t percent);
+
+static bool gamepad_state_needs_refresh(const stream_input_t *input, const app_gamepad_state_t *gamepad);
+
+static void gamepad_stick_log_dropout(const app_gamepad_state_t *gamepad, const char *stick,
+                                      int16_t raw_x, int16_t raw_y, uint32_t now_ms);
 
 static void stream_input_send_unannounced_gamepads(stream_input_t *input);
 
@@ -398,8 +412,7 @@ void stream_input_handle_caxis(stream_input_t *input, const SDL_ControllerAxisEv
         default:
             return;
     }
-    filter_deadzone_2axis(input, &gamepad->leftStickX, &gamepad->leftStickY);
-    filter_deadzone_2axis(input, &gamepad->rightStickX, &gamepad->rightStickY);
+    stream_input_filter_gamepad_sticks(input, gamepad);
 
     if (vmouse_intercepted(input, gamepad)) {
         vmouse_set_vector(&input->vmouse, gamepad->rightStickX, gamepad->rightStickY);
@@ -882,6 +895,10 @@ void stream_input_send_gamepad_remove(stream_input_t *input, app_gamepad_state_t
         return;
     }
     input->announcedGamepadMask &= ~(1 << gamepad->gs_id);
+    /* The pad is gone; a hold on its stick would be sent to a controller that
+     * is no longer there, or resurrected when the same slot is reused. */
+    gamepad_stick_filter_reset(&gamepad->left_stick_filter);
+    gamepad_stick_filter_reset(&gamepad->right_stick_filter);
     uint16_t activeGamepadMask =
             stream_input_moonlight_active_mask(input) & (uint16_t) ~(1u << (unsigned) gamepad->gs_id);
     commons_log_info("Input", "Controller %d removed (Moonlight mask 0x%x)", gamepad->gs_id, activeGamepadMask);
@@ -1078,6 +1095,8 @@ static void release_buttons(stream_input_t *input, app_gamepad_state_t *gamepad)
     gamepad->leftStickY = 0;
     gamepad->rightStickX = 0;
     gamepad->rightStickY = 0;
+    gamepad_stick_filter_reset(&gamepad->left_stick_filter);
+    gamepad_stick_filter_reset(&gamepad->right_stick_filter);
     cancel_all_holds();
     if (!stream_input_gamepad_sends_moonlight(input, gamepad)) {
         return;
@@ -1153,4 +1172,97 @@ static bool filter_deadzone_2axis(stream_input_t *input, short *x, short *y) {
         return true;
     }
     return false;
+}
+
+void stream_input_filter_gamepad_sticks(stream_input_t *input, app_gamepad_state_t *gamepad) {
+    if (!input->stick_drift_correction) {
+        filter_deadzone_2axis(input, &gamepad->leftStickX, &gamepad->leftStickY);
+        filter_deadzone_2axis(input, &gamepad->rightStickX, &gamepad->rightStickY);
+        return;
+    }
+
+    const uint16_t deadzone = gamepad_stick_deadzone_units(input->stick_deadzone);
+    const uint32_t now = SDL_GetTicks();
+    int16_t out_x = 0, out_y = 0;
+
+    if (gamepad_stick_filter_feed(&gamepad->left_stick_filter, gamepad->leftStickX, gamepad->leftStickY,
+                                  deadzone, now, &out_x, &out_y) == GAMEPAD_STICK_FILTER_HELD) {
+        gamepad_stick_log_dropout(gamepad, "left", gamepad->leftStickX, gamepad->leftStickY, now);
+    }
+    gamepad->leftStickX = out_x;
+    gamepad->leftStickY = out_y;
+
+    if (gamepad_stick_filter_feed(&gamepad->right_stick_filter, gamepad->rightStickX, gamepad->rightStickY,
+                                  deadzone, now, &out_x, &out_y) == GAMEPAD_STICK_FILTER_HELD) {
+        gamepad_stick_log_dropout(gamepad, "right", gamepad->rightStickX, gamepad->rightStickY, now);
+    }
+    gamepad->rightStickX = out_x;
+    gamepad->rightStickY = out_y;
+}
+
+void stream_input_update_gamepad_stability(stream_input_t *input) {
+    if (!input->stick_drift_correction || input->view_only || !input->started) {
+        return;
+    }
+    const uint16_t deadzone = gamepad_stick_deadzone_units(input->stick_deadzone);
+    const uint32_t now = SDL_GetTicks();
+    const bool refresh_due = (uint32_t) (now - input->gamepad_state_refresh_ms) >= GAMEPAD_STATE_REFRESH_MS;
+    for (int i = 0, j = app_input_get_max_gamepads(input->input); i < j; i++) {
+        app_gamepad_state_t *gamepad = app_input_gamepad_state_by_index(input->input, i);
+        if (gamepad == NULL) {
+            continue;
+        }
+        int16_t out_x = gamepad->leftStickX, out_y = gamepad->leftStickY;
+        bool changed = gamepad_stick_filter_tick(&gamepad->left_stick_filter, deadzone, now, &out_x, &out_y);
+        if (changed) {
+            gamepad->leftStickX = out_x;
+            gamepad->leftStickY = out_y;
+        }
+        out_x = gamepad->rightStickX;
+        out_y = gamepad->rightStickY;
+        if (gamepad_stick_filter_tick(&gamepad->right_stick_filter, deadzone, now, &out_x, &out_y)) {
+            gamepad->rightStickX = out_x;
+            gamepad->rightStickY = out_y;
+            changed = true;
+        }
+        if (changed) {
+            commons_log_info("Input", "Controller #%d stick hold expired, direction released", gamepad->gs_id);
+            stream_input_send_buttons(input, gamepad);
+            continue;
+        }
+        if (refresh_due && gamepad_state_needs_refresh(input, gamepad)) {
+            stream_input_send_buttons(input, gamepad);
+        }
+    }
+    if (refresh_due) {
+        input->gamepad_state_refresh_ms = now;
+    }
+}
+
+static uint16_t gamepad_stick_deadzone_units(uint8_t percent) {
+    return (uint16_t) (GAMEPAD_STICK_FULL_SCALE * percent / 100);
+}
+
+static bool gamepad_state_needs_refresh(const stream_input_t *input, const app_gamepad_state_t *gamepad) {
+    if ((input->announcedGamepadMask & (1 << gamepad->gs_id)) == 0) {
+        return false;
+    }
+    return gamepad->buttons != 0 || gamepad->leftTrigger != 0 || gamepad->rightTrigger != 0 ||
+           gamepad->leftStickX != 0 || gamepad->leftStickY != 0 ||
+           gamepad->rightStickX != 0 || gamepad->rightStickY != 0;
+}
+
+/* Only useful evidence when it repeats, and the pad can repeat it faster than a
+ * log line should be written, so the whole client shares one slow cadence. */
+static uint32_t stick_dropout_last_log_ms = 0;
+
+static void gamepad_stick_log_dropout(const app_gamepad_state_t *gamepad, const char *stick,
+                                      int16_t raw_x, int16_t raw_y, uint32_t now_ms) {
+    if ((uint32_t) (now_ms - stick_dropout_last_log_ms) < 1000) {
+        return;
+    }
+    stick_dropout_last_log_ms = now_ms;
+    commons_log_info("Input",
+                     "Controller #%d %s stick report collapsed to (%d,%d) while held; keeping the direction",
+                     gamepad->gs_id, stick, raw_x, raw_y);
 }

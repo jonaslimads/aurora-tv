@@ -443,6 +443,22 @@ msgstr ""
 msgid "Virtual mouse"
 msgstr "Mouse virtual"
 
+#: src/app/ui/streaming/streaming.controller.c:507
+msgid "Virtual mouse on"
+msgstr "Mouse virtual ligado"
+
+#: src/app/ui/streaming/streaming.controller.c:508
+msgid "Virtual mouse off"
+msgstr "Mouse virtual desligado"
+
+#: src/app/ui/settings/panes/input.pane.c:98
+msgid "Stick drift correction"
+msgstr "Correção de drift dos analógicos"
+
+#: src/app/ui/settings/panes/input.pane.c:99
+msgid "For controllers whose sticks wander on their own or drop a held direction. The deadzone is rescaled so the stick still reaches full deflection, and a stick held wide is kept there when a report briefly collapses back to centre. Applies to the next stream."
+msgstr "Para controles cujos analógicos se movem sozinhos ou perdem a direção segurada. A zona morta é reescalonada para que o analógico ainda atinja o curso completo, e a direção segurada é mantida quando um relatório volta ao centro por um instante. Vale para o próximo streaming."
+
 #: src/app/ui/settings/panes/input.pane.c:78
 msgid "Press LB + RS to move mouse cursor with sticks. LT/RT for left/right mouse buttons."
 msgstr ""

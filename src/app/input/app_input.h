@@ -7,6 +7,7 @@
 #include <SDL_version.h>
 #include "config.h"
 #include "gamecontrollerdb_updater.h"
+#include "gamepad_stick_filter.h"
 
 #include "lvgl.h"
 #include "lvgl/input/lv_drv_sdl_key.h"
@@ -37,6 +38,8 @@ typedef struct app_gamepad_state_t {
     char leftTrigger, rightTrigger;
     short leftStickX, leftStickY;
     short rightStickX, rightStickY;
+    /** Per-stick drift/dropout state, see gamepad_stick_filter.h. Zeroed means idle. */
+    gamepad_stick_filter_t left_stick_filter, right_stick_filter;
     int buttons;
     /** Shoulder/stick-click buttons seen by the client hotkey handler, see stream_input_gamepad_hotkey. */
     uint8_t hotkey_buttons;

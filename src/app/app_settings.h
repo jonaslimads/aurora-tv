@@ -89,6 +89,13 @@ typedef struct app_settings_t {
     bool show_logs;
     int stick_deadzone;
     /**
+     * Settings -> Input -> Stick drift correction. Applies gamepad_stick_filter to
+     * both sticks before forwarding: deadzone + range rescale, plus holding a
+     * direction through a report that collapses back to centre. Off keeps the
+     * plain deadzone behaviour of earlier releases.
+     */
+    bool stick_drift_correction;
+    /**
      * Sent to host as STREAM_CONFIGURATION.clientRefreshRateX100 (Hz * 100, e.g. 11994 = 119.94 Hz).
      * 0 = omit (host default frame pacing).
      */

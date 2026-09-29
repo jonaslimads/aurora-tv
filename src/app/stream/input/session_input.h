@@ -49,6 +49,10 @@ typedef struct stream_input_t {
     int pointerGestureStartY;
     bool view_only, no_sdl_mouse;
     uint8_t stick_deadzone;
+    /** Settings -> Input -> Stick drift correction, see gamepad_stick_filter.h. */
+    bool stick_drift_correction;
+    /** Last time the held gamepad state was repeated to the host, see stream_input_update_gamepad_stability. */
+    uint32_t gamepad_state_refresh_ms;
     bool report_gamepad_battery;
     uint8_t touchpad_mode;
     bool touchpad_multitouch;
@@ -109,6 +113,21 @@ void stream_input_handle_cbutton(stream_input_t *input, const SDL_ControllerButt
  * @return true when Aurora consumed the event (do not forward, do not map to a key)
  */
 bool stream_input_gamepad_hotkey(stream_input_t *input, const SDL_ControllerButtonEvent *event);
+
+/**
+ * Apply the stick filter chain (plain deadzone, or drift correction when enabled)
+ * to the stick values currently held in the gamepad state. Called for every axis
+ * report, before the values reach the virtual mouse or the host.
+ */
+void stream_input_filter_gamepad_sticks(stream_input_t *input, app_gamepad_state_t *gamepad);
+
+/**
+ * Keep the forwarded gamepad state honest while drift correction is on:
+ * expire stick holds that never got confirmed, and repeat the state of a pad
+ * that is being worked on. Axis reports only arrive when the stick moves, so
+ * the main loop has to drive this. Safe to call every frame.
+ */
+void stream_input_update_gamepad_stability(stream_input_t *input);
 
 void stream_input_handle_caxis(stream_input_t *input, const SDL_ControllerAxisEvent *event);
 

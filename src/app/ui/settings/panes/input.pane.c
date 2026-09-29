@@ -101,11 +101,18 @@ static lv_obj_t *create_obj(lv_fragment_t *self, lv_obj_t *container) {
     pref_header(view, locstr("Gamepad"));
 
     pane->deadzone_label = pref_title_label(view, locstr("Analog stick deadzone"));
-    pane->deadzone_slider = pref_slider(view, &app_configuration->stick_deadzone, 0, 20, 1);
+    pane->deadzone_slider = pref_slider(view, &app_configuration->stick_deadzone, 0, 30, 1);
     lv_obj_set_width(pane->deadzone_slider, LV_PCT(100));
     lv_obj_add_event_cb(pane->deadzone_slider, on_deadzone_changed, LV_EVENT_VALUE_CHANGED, pane);
     pref_desc_label(view, locstr("Note: Some games can enforce a larger deadzone "
                                  "than what Aurora is configured to use."),
+                    false);
+
+    pref_checkbox(view, locstr("Stick drift correction"), &app_configuration->stick_drift_correction, false);
+    pref_desc_label(view, locstr("For controllers whose sticks wander on their own or drop a held "
+                                 "direction. The deadzone is rescaled so the stick still reaches full "
+                                 "deflection, and a stick held wide is kept there when a report briefly "
+                                 "collapses back to centre. Applies to the next stream."),
                     false);
 
     pref_checkbox(view, locstr("Virtual mouse"), &app_configuration->virtual_mouse, false);
