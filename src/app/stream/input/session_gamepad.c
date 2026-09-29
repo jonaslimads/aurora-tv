@@ -18,6 +18,11 @@
 /** Hold Select (Back) this long to toggle pinned performance stats (Artemis-style). */
 #define GAMEPAD_HOLD_STATS_MS 4000
 
+/* Buttons an Aurora hotkey chord is built from. L1/R1 pick the shortcut, R3 runs it. */
+#define HOTKEY_BTN_LB 0x1u
+#define HOTKEY_BTN_RB 0x2u
+#define HOTKEY_BTN_R3 0x4u
+
 #define TOUCHPAD_SECONDARY_CORNER 0.75f
 #define TOUCHPAD_TAP_THRESHOLD_MS 300u
 #define TOUCHPAD_SINGLE_TAP_SLOP_SQ (0.015f * 0.015f)
@@ -111,6 +116,10 @@ static void touchpad_send_mouse_click(int mouse_button);
 
 static short touchpad_take_delta(float *remainder);
 
+static uint8_t gamepad_hotkey_bit(Uint8 button);
+
+static void gamepad_hotkey_lift_modifier(stream_input_t *input, app_gamepad_state_t *gamepad, uint8_t modifier);
+
 static bool stream_input_gamepad_sends_moonlight(const stream_input_t *input,
                                                  const app_gamepad_state_t *gamepad) {
     (void) input;
@@ -150,7 +159,56 @@ void stream_input_touchpad_mouse_deinit(stream_input_t *input) {
     input->touchpad_count = 0;
 }
 
+bool stream_input_gamepad_hotkey(stream_input_t *input, const SDL_ControllerButtonEvent *event) {
+    app_gamepad_state_t *gamepad = app_input_gamepad_state_by_instance_id(input->input, event->which);
+    if (gamepad == NULL) {
+        return false;
+    }
+
+    const uint8_t bit = gamepad_hotkey_bit(event->button);
+    if (bit == 0) {
+        return false;
+    }
+
+    const bool pressed = event->state == SDL_PRESSED;
+    const uint8_t buttons = pressed ? (uint8_t) (gamepad->hotkey_buttons | bit)
+                                    : (uint8_t) (gamepad->hotkey_buttons & ~bit);
+
+    /* A chord that already fired owns the rest of it: the shoulder button that
+     * started it and the R3 that ends it must both stay out of the game. */
+    const bool consumed = gamepad->hotkey_chord_active;
+    if (pressed && bit == HOTKEY_BTN_R3 && !consumed) {
+        /* L1 wins if both shoulders happen to be down, so the chord has one meaning. */
+        uint8_t modifier = 0;
+        if (buttons & HOTKEY_BTN_LB) {
+            modifier = HOTKEY_BTN_LB;
+        } else if (buttons & HOTKEY_BTN_RB) {
+            modifier = HOTKEY_BTN_RB;
+        }
+        if (modifier != 0) {
+            gamepad->hotkey_buttons = buttons;
+            gamepad->hotkey_chord_active = true;
+            gamepad_hotkey_lift_modifier(input, gamepad, modifier);
+            commons_log_info("Input", "Controller #%d hotkey: %s", gamepad->gs_id,
+                             modifier == HOTKEY_BTN_LB ? "L1+R3 virtual mouse" : "R1+R3 on-screen keyboard");
+            bus_pushevent(modifier == HOTKEY_BTN_LB ? USER_TOGGLE_VMOUSE : USER_TOGGLE_SOFT_KEYBOARD, NULL, NULL);
+            return true;
+        }
+    }
+
+    gamepad->hotkey_buttons = buttons;
+    if (buttons == 0) {
+        gamepad->hotkey_chord_active = false;
+    }
+    return consumed;
+}
+
 void stream_input_handle_cbutton(stream_input_t *input, const SDL_ControllerButtonEvent *event) {
+    /* Aurora's shortcuts come first; a consumed chord never reaches the host. */
+    if (stream_input_gamepad_hotkey(input, event)) {
+        return;
+    }
+
     app_gamepad_state_t *gamepad = app_input_gamepad_state_by_instance_id(input->input, event->which);
     if (gamepad == NULL) {
         return;
@@ -1029,6 +1087,37 @@ static void release_buttons(stream_input_t *input, app_gamepad_state_t *gamepad)
                                gamepad->rightStickY);
 }
 
+
+static uint8_t gamepad_hotkey_bit(Uint8 button) {
+    switch (button) {
+        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
+            return HOTKEY_BTN_LB;
+        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
+            return HOTKEY_BTN_RB;
+        case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
+            return HOTKEY_BTN_R3;
+        default:
+            return 0;
+    }
+}
+
+/* The shoulder button that opens a chord is a plain button press until R3 arrives,
+ * so the host has already seen it go down. Lift it here -- the shortcut would
+ * otherwise leave the game holding L1/R1 for as long as it reacts to that button. */
+static void gamepad_hotkey_lift_modifier(stream_input_t *input, app_gamepad_state_t *gamepad, uint8_t modifier) {
+    int flags = 0;
+    if (modifier & HOTKEY_BTN_LB) {
+        flags |= LB_FLAG;
+    }
+    if (modifier & HOTKEY_BTN_RB) {
+        flags |= RB_FLAG;
+    }
+    if ((gamepad->buttons & flags) == 0) {
+        return;
+    }
+    gamepad->buttons &= ~flags;
+    stream_input_send_buttons(input, gamepad);
+}
 
 static bool gamepad_combo_check(int buttons, short combo) {
     return (buttons & combo) == combo;

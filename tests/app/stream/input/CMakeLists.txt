@@ -1,0 +1,1 @@
+add_unit_test(test_gamepad_hotkey test_gamepad_hotkey.c)

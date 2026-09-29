@@ -35,6 +35,15 @@ static void hide_overlay_impl(streaming_controller_t *controller);
 
 static void on_cancel_key(lv_event_t *event);
 
+static void show_soft_keyboard(streaming_controller_t *controller);
+
+static void streaming_notice_show_timed(streaming_controller_t *controller, const char *message, uint32_t duration_ms);
+
+static void streaming_notice_hide_timer_cb(lv_timer_t *timer);
+
+/** How long the feedback for a gamepad shortcut stays on screen. */
+#define TOGGLE_NOTICE_MS 2000
+
 static void soft_keyboard_close_cb(void *userdata);
 
 static bool show_overlay(streaming_controller_t *controller);
@@ -388,6 +397,23 @@ void streaming_notice_show(const char *message) {
     }
 }
 
+static void streaming_notice_hide_timer_cb(lv_timer_t *timer) {
+    streaming_controller_t *controller = timer->user_data;
+    /* repeat_count is 1, so lv_timer_handler deletes this timer once we return. */
+    controller->notice_timer = NULL;
+    streaming_notice_show(NULL);
+}
+
+static void streaming_notice_show_timed(streaming_controller_t *controller, const char *message,
+                                        uint32_t duration_ms) {
+    streaming_notice_show(message);
+    if (controller->notice_timer != NULL) {
+        lv_timer_del(controller->notice_timer);
+    }
+    controller->notice_timer = lv_timer_create(streaming_notice_hide_timer_cb, duration_ms, controller);
+    lv_timer_set_repeat_count(controller->notice_timer, 1);
+}
+
 static void constructor(lv_fragment_t *self, void *args) {
     streaming_controller_t *controller = (streaming_controller_t *) self;
     current_controller = controller;
@@ -475,27 +501,31 @@ static bool on_event(lv_fragment_t *self, int code, void *userdata) {
             return true;
         }
         case USER_TOGGLE_VMOUSE: {
-            if (controller->global->session) {
-                session_toggle_vmouse(controller->global->session);
+            if (!controller->global->session) {
+                return true;
             }
+            session_toggle_vmouse(controller->global->session);
+            /* Shortcuts run with the overlay closed, so the notice is the only sign
+             * the mode changed -- and "off" has no visible effect of its own. */
+            streaming_notice_show_timed(controller,
+                                        session_vmouse_active(controller->global->session)
+                                        ? locstr("Virtual mouse on")
+                                        : locstr("Virtual mouse off"),
+                                        TOGGLE_NOTICE_MS);
             return true;
         }
         case USER_OPEN_SOFT_KEYBOARD: {
+            if (!controller->soft_kbd) {
+                show_soft_keyboard(controller);
+            }
+            return true;
+        }
+        case USER_TOGGLE_SOFT_KEYBOARD: {
             if (controller->soft_kbd) {
-                return true;
+                soft_keyboard_close_cb(controller);
+            } else {
+                show_soft_keyboard(controller);
             }
-            hide_overlay_impl(controller);
-            session_screen_keyboard_opened(controller->global->session);
-            controller->soft_kbd = soft_keyboard_create(
-                controller->detached_root,
-                controller->global->session,
-                soft_keyboard_close_cb,
-                controller);
-            lv_group_t *kbd_group = soft_keyboard_get_group(controller->soft_kbd);
-            if (kbd_group) {
-                app_input_set_group(&controller->global->ui.input, kbd_group);
-            }
-            app_set_mouse_grab(&controller->global->input, false);
             return true;
         }
         case USER_SIZE_CHANGED: {
@@ -592,6 +622,10 @@ static void on_delete_obj(lv_fragment_t *self, lv_obj_t *view) {
     LV_UNUSED(view);
     streaming_controller_t *controller = (streaming_controller_t *) self;
     if (controller->notice) {
+        if (controller->notice_timer != NULL) {
+            lv_timer_del(controller->notice_timer);
+            controller->notice_timer = NULL;
+        }
         lv_obj_del(controller->notice);
     }
     if (controller->stats->parent != controller->overlay) {
@@ -620,6 +654,24 @@ static void exit_streaming(lv_event_t *event) {
 static void suspend_streaming(lv_event_t *event) {
     streaming_controller_t *self = lv_event_get_user_data(event);
     session_interrupt(self->global->session, false, STREAMING_INTERRUPT_USER);
+}
+
+static void show_soft_keyboard(streaming_controller_t *controller) {
+    if (!controller->global->session) {
+        return;
+    }
+    hide_overlay_impl(controller);
+    session_screen_keyboard_opened(controller->global->session);
+    controller->soft_kbd = soft_keyboard_create(
+        controller->detached_root,
+        controller->global->session,
+        soft_keyboard_close_cb,
+        controller);
+    lv_group_t *kbd_group = soft_keyboard_get_group(controller->soft_kbd);
+    if (kbd_group) {
+        app_input_set_group(&controller->global->ui.input, kbd_group);
+    }
+    app_set_mouse_grab(&controller->global->input, false);
 }
 
 static void soft_keyboard_close_cb(void *userdata) {
@@ -658,10 +710,9 @@ static void open_keyboard(lv_event_t *event) {
 }
 
 static void toggle_vmouse(lv_event_t *event) {
-    streaming_controller_t *controller = lv_event_get_user_data(event);
     hide_overlay(event);
-    app_t *app = controller->global;
-    session_toggle_vmouse(app->session);
+    /* Same path as the L1+R3 shortcut, so both give the same feedback. */
+    bus_pushevent(USER_TOGGLE_VMOUSE, NULL, NULL);
 }
 
 static void stream_fragment_del_timer_cb(lv_timer_t *timer) {

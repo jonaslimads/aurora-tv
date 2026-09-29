@@ -107,6 +107,9 @@ bool session_has_input(session_t *session);
 
 void session_toggle_vmouse(session_t *session);
 
+/** Current virtual mouse state, for UI feedback after a toggle. */
+bool session_vmouse_active(session_t *session);
+
 void session_screen_keyboard_opened(session_t *session);
 
 void session_screen_keyboard_closed(session_t *session);

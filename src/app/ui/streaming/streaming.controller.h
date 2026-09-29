@@ -39,6 +39,8 @@ typedef struct {
     lv_obj_t *stats_quality_indicator;  /* Colored dot: green/yellow/red by latency */
     lv_obj_t *stats_pin;
     lv_obj_t *notice, *notice_label;
+    /** Hides a notice shown by a gamepad shortcut; NULL when nothing is timed. */
+    lv_timer_t *notice_timer;
     lv_obj_t *soft_kbd;
     lv_style_t overlay_button_style;
     lv_style_t overlay_button_style_focused;
