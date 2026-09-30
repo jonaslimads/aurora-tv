@@ -570,22 +570,18 @@ static void on_view_created(lv_fragment_t *self, lv_obj_t *view) {
 
     lv_obj_add_event_cb(controller->stats_pin, pin_toggle, LV_EVENT_VALUE_CHANGED, controller->stats);
 
-    /* Grab keyboard for the stream so USB F-keys / Home / Insert are not eaten by the
-     * compositor (webOS) or the desktop WM. On desktop, honor syskey_capture; on webOS
-     * always grab while streaming — F1–F12/Insert need it regardless of Meta capture. */
-#if defined(TARGET_WEBOS)
-    SDL_SetWindowGrab(controller->global->ui.window, SDL_TRUE);
-#if SDL_VERSION_ATLEAST(2, 0, 16)
-    SDL_SetWindowKeyboardGrab(controller->global->ui.window, SDL_TRUE);
-#endif
-#else
+    /* Grab the window for the stream so keys are not eaten by the desktop WM. On webOS
+     * the SDL port implements a keyboard grab as a compositor-wide keyboard-shortcuts
+     * inhibit: the TV then stops receiving its own system keys (Home, Back, ribbon) and
+     * the remote only drives the game. So "Capture system keys" gates it on every
+     * platform. USB keyboards keep F1-F12/Insert through the evdev claim in
+     * platform/webos/keyboard_evdev.c, which never touches the TV remote. */
     if (controller->global->settings.syskey_capture) {
         SDL_SetWindowGrab(controller->global->ui.window, SDL_TRUE);
 #if SDL_VERSION_ATLEAST(2, 0, 16)
         SDL_SetWindowKeyboardGrab(controller->global->ui.window, SDL_TRUE);
 #endif
     }
-#endif
 #if TARGET_WEBOS
     /* AURORA_HIDE_OVERLAY=1 or /tmp/aurora_hide_overlay.enable: A/B video plane only.
      * Restart the stream after changing — mid-session toggle is not supported. */
