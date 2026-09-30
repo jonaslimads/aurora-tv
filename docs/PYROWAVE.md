@@ -177,3 +177,16 @@ declines to build it, which costs the session exactly one frame.
 | `src/app/stream/session.c` | advertises PyroWave only when it can be used |
 | `third_party/pyrowave/` | vendored codec, pinned commit in `VENDOR.txt` |
 | `tests/app/stream/video/test_pyrowave_frame.c` | framing contract, protocol violations, loss behaviour |
+
+## Branches, and one thing to remember when pushing
+
+The desktop target needs SDL >= 2.0.24: upstream's own settings pane reads
+`SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_*`, so an older distro package (Ubuntu 22.04
+ships SDL 2.0.20) fails to build the unmodified tree.
+
+The RTSP, SDP and depacketizer half of this feature is not in this repository — it is in
+the `core/moonlight-common-c` submodule, on its `aurora-pyrowave` branch. A branch that
+carries PyroWave is only complete when that submodule branch is pushed too, otherwise the
+submodule pointer in the superproject names a commit nobody else can fetch. Its remote is
+the upstream `GuiDev1994/moonlight-common-c`, so publishing it needs a fork of that
+repository first, and `.gitmodules` should then point at it.
