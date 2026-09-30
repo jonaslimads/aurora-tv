@@ -193,8 +193,11 @@ void settings_initialize(app_settings_t *config, char *conf_dir) {
     config->abr_mode = 0;
     config->game_mode = true;
 #if defined(TARGET_WEBOS)
-    /* Home/Win need KEYS_HOME; default capture on so Meta reaches the host too. */
-    config->syskey_capture = true;
+    /* Keep the TV usable by default: with capture on, the app claims Home and inhibits
+     * the TV's keyboard shortcuts, so the remote stops controlling webOS. Users who want
+     * Home/Win forwarded to the host turn "Capture system keys" on.
+     * See docs/INPUT_SYSTEM_KEYS.md. */
+    config->syskey_capture = false;
     /* Auto pairs audio with the video module (SMP/NDL). */
     set_string(&config->audio_backend, "auto");
     settings_apply_ntsc_preset_refresh(config, config->stream.fps);
