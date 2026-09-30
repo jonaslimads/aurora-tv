@@ -190,3 +190,42 @@ carries PyroWave is only complete when that submodule branch is pushed too, othe
 submodule pointer in the superproject names a commit nobody else can fetch. Its remote is
 the upstream `GuiDev1994/moonlight-common-c`, so publishing it needs a fork of that
 repository first, and `.gitmodules` should then point at it.
+
+## Where this came from
+
+Nothing about PyroWave was invented here; it is already shipping on both ends of a
+Vibepollo session, and this port follows those choices.
+
+**Host — Vibepollo** (`/home/jonas/projects/gaming/Vibepollo`):
+
+* `docs/pyrowave-protocol.md` — the negotiation and framing contract this client
+  implements: the `SCM_PYROWAVE*` bits, `a=rtpmap:99 PYROWAVE/90000`,
+  `a=x-ss-pyrowave.bitstream:<id>`, `x-nv-vqos[0].bitStreamFormat=3`, the
+  `x-ss-video[0].pyrowave*` ANNOUNCE attributes, and why the bitstream id has to match.
+* `src/pyrowave_protocol.h` — the constants, mirrored in `Limelight.h`.
+* `third-party/pyrowave/` — the vendored codec, and the commit this client pins to
+  (`186f0393b77f7755953b5ecde994bb1cec2e4155`, id `186f0393`).
+* Its record packager is what the record-start flag and the critical packet count exist
+  for: the host frames records inside RTP payloads because PyroWave's own parser needs
+  one record at a time.
+
+**Client — moonlight-qt** (`/home/jonas/projects/gaming/moonlight-qt`). The PyroWave
+work is not on `origin/pyrowave`, which carries only the first five commits; the complete
+history (26 commits) is on `origin/vrr17` and `origin/release/6.1.0-vrr18`. The parts that
+map onto this port:
+
+* `app/streaming/video/pyrowave/pyrowaveframing.{h,cpp}` — the record reassembly that
+  `pyrowave_frame.c` corresponds to.
+* `app/streaming/video/pyrowave/pyrowavedecoder.{h,cpp}` — the decode stage, which is
+  `pyrowave_decode.c` here.
+* `app/streaming/video/ffmpeg-renderers/d3d11pyrowave.{h,cpp}` and
+  `app/streaming/video/pyrowave/pyrowaveplacebo.cpp` — presentation. That is the piece
+  Aurora cannot copy: moonlight-qt owns its renderer, so it uploads the decoded planes
+  into its own D3D11/Placebo pipeline, while Aurora hands video to SS4S's overlay.
+* `app/backend/systemproperties.{h,cpp}` and `app/settings/streamingpreferences.{h,cpp}` —
+  advertising the codec only when the machine can take it, and a user switch, which
+  `aurora_pyrowave_available()` plus Settings → Experimental mirror.
+* `app/streaming/video/pyrowave/pyrowavecalibrator.{h,cpp}` — bitrate calibrated against
+  measured host-to-client throughput. Aurora does not port that; its adaptive bitrate
+  loop is tuned for interlaced codecs where the cost of a lost packet is a long recovery,
+  which is precisely what PyroWave removes.
