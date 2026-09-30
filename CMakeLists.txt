@@ -225,6 +225,19 @@ if (TARGET_WEBOS)
 endif ()
 option(SS4S_MODULE_BUILD_DUMMY "Enable SS4S dummy module" OFF)
 
+# PyroWave decodes with Vulkan compute and writes back to client memory, so it only ever
+# builds where a Vulkan device exists: not on webOS (the SDK ships EGL 1.4 and GLES 1/2
+# only) and not on the Steam Link, whose compositor owns the GPU. See docs/PYROWAVE.md.
+if (NOT TARGET_WEBOS AND NOT TARGET_STEAMLINK)
+    option(ENABLE_PYROWAVE "Build the PyroWave intra-only codec (needs Vulkan)" ON)
+else ()
+    option(ENABLE_PYROWAVE "Build the PyroWave intra-only codec (needs Vulkan)" OFF)
+endif ()
+
+if (ENABLE_PYROWAVE)
+    add_subdirectory(third_party/pyrowave EXCLUDE_FROM_ALL)
+endif ()
+
 add_subdirectory(third_party/ss4s)
 add_subdirectory(third_party/lvgl EXCLUDE_FROM_ALL)
 target_include_directories(lvgl PUBLIC ${CMAKE_SOURCE_DIR}/third_party/lvgl/src)
@@ -241,6 +254,17 @@ target_include_directories(lv_sdl_img SYSTEM PRIVATE ${SDL2_INCLUDE_DIRS} ${SDL2
 
 add_executable(moonlight src/main.c)
 add_library(moonlight-lib STATIC)
+
+if (ENABLE_PYROWAVE)
+    target_link_libraries(moonlight-lib PUBLIC pyrowave::capi)
+    target_compile_definitions(moonlight-lib PUBLIC ENABLE_PYROWAVE=1)
+
+    if (BUILD_TESTS)
+        # Encode -> host style record framing -> client scanner -> decode, on a real
+        # Vulkan device; skips when the machine has none.
+        add_subdirectory(tools/pyrowave)
+    endif ()
+endif ()
 target_link_libraries(moonlight PRIVATE moonlight-lib)
 
 target_compile_lint(moonlight-lib)

@@ -278,7 +278,7 @@ bool streaming_refresh_stats() {
             }
             (void) first;
         }
-        if (len > 0 && (size_t) len < sizeof(stats_line)) {
+       if (len > 0 && (size_t) len < sizeof(stats_line)) {
             if (audio_stream_info.feedFailures > 0 || audio_stream_info.maxGapMs >= 40) {
                 snprintf(stats_line + len, sizeof(stats_line) - (size_t) len,
                          " | %s AF %u AG %u", audio_ch,
@@ -286,6 +286,15 @@ bool streaming_refresh_stats() {
                          (unsigned) audio_stream_info.maxGapMs);
             } else {
                 snprintf(stats_line + len, sizeof(stats_line) - (size_t) len, " | %s", audio_ch);
+            }
+        }
+        /* PyroWave decodes every frame on its own, so a lost packet costs one frame
+         * rather than a whole GOP. Show what that cost this session. */
+        if (info->pyrowaveDropped > 0 || info->pyrowavePartial > 0) {
+            size_t used = strlen(stats_line);
+            if (used < sizeof(stats_line) - 16) {
+                snprintf(stats_line + used, sizeof(stats_line) - used, " | PW D%u R%u",
+                         (unsigned) info->pyrowaveDropped, (unsigned) info->pyrowavePartial);
             }
         }
         if (sys_ram_pct >= 0) {

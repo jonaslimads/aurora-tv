@@ -11,6 +11,7 @@
 #include "libgamestream/errors.h"
 
 #include "logging.h"
+#include "stream/video/pyrowave_decode.h"
 #include "ss4s.h"
 #include "input/input_gamepad.h"
 #include "app_session.h"
@@ -346,6 +347,17 @@ void session_config_init(app_t *app, session_config_t *config, const SERVER_DATA
             config->stream.supportedVideoFormats |= VIDEO_FORMAT_H265_MAIN10;
         }
     }
+    /* PyroWave is its own codec rather than a profile of HEVC/AV1, so it is only ever
+     * advertised when the codec is built, a Vulkan device for it exists, and the user
+     * asked for it. The host then has nothing else it could prefer. */
+    if (app_config->pyrowave && aurora_pyrowave_available()) {
+        config->stream.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE;
+        if ((app_config->hdr && video_cap.hdr) || app_config->force_10bit) {
+            config->stream.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE_HDR10;
+        }
+        commons_log_info("Session", "Codec preference: PyroWave (intra-only wavelet codec)");
+    }
+
     // If no video format is supported, default to H.264
     if (config->stream.supportedVideoFormats == 0) {
         config->stream.supportedVideoFormats = VIDEO_FORMAT_H264;

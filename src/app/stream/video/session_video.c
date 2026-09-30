@@ -17,6 +17,10 @@
 #include "ui/streaming/streaming.controller.h"
 #include "util/bus.h"
 #include "logging.h"
+
+#include "pyrowave_decode.h"
+#include "pyrowave_frame.h"
+#include "pyrowave_present.h"
 #include "ss4s.h"
 #include "stream/connection/session_connection.h"
 #include "stream/session_priv.h"
@@ -78,6 +82,14 @@ static int vdec_delegate_setup(int videoFormat, int width, int height, int redra
 
 static void vdec_delegate_cleanup(void);
 
+/* PyroWave frames are decoded by the client, so they never reach SS4S. */
+static aurora_pyrowave_decoder_t *pyrowave;
+static bool ss4s_video_open;
+static PyrowavePayload pyrowavePayloads[PYROWAVE_MAX_PAYLOADS];
+static aurora_pyrowave_stats_t pyrowaveStats;
+
+static int vdec_submit_pyrowave(PDECODE_UNIT decodeUnit);
+
 static int vdec_delegate_submit(PDECODE_UNIT decodeUnit);
 
 static int vdec_finish_feed(SS4S_VideoFeedResult result, PDECODE_UNIT decodeUnit);
@@ -124,6 +136,11 @@ static const char *video_format_name(int videoFormat) {
             return "H265";
         case VIDEO_FORMAT_H265_MAIN10:
             return "H265 10bit";
+        case VIDEO_FORMAT_PYROWAVE:
+        case VIDEO_FORMAT_PYROWAVE_444:
+        case VIDEO_FORMAT_PYROWAVE_HDR10:
+        case VIDEO_FORMAT_PYROWAVE_HDR10_444:
+            return "PyroWave";
         case VIDEO_FORMAT_AV1_MAIN8:
             return "AV1 8bit";
         case VIDEO_FORMAT_AV1_MAIN10:
@@ -179,6 +196,34 @@ int vdec_delegate_setup(int videoFormat, int width, int height, int redrawRate, 
         info.frameRateNumerator = vdec_stream_target_fps;
         info.frameRateDenominator = 1;
     }
+    if (videoFormat & VIDEO_FORMAT_MASK_PYROWAVE) {
+        PyrowaveStreamInfo streamInfo;
+        streamInfo.width = width;
+        streamInfo.height = height;
+        streamInfo.chroma444 = (videoFormat & (VIDEO_FORMAT_PYROWAVE_444 | VIDEO_FORMAT_PYROWAVE_HDR10_444)) != 0;
+
+        pyrowave = aurora_pyrowave_decoder_create(&streamInfo,
+                                                 (videoFormat & (VIDEO_FORMAT_PYROWAVE_HDR10 |
+                                                                 VIDEO_FORMAT_PYROWAVE_HDR10_444)) != 0);
+        if (!pyrowave) {
+            commons_log_error("Session", "PyroWave was negotiated but no decoder could be created");
+            free(buffer);
+            buffer = NULL;
+            return CALLBACKS_SESSION_ERROR_VDEC_UNSUPPORTED;
+        }
+
+        char sink[160];
+        aurora_pyrowave_sink_describe(sink, sizeof(sink));
+        commons_log_info("Session", "PyroWave path: %s at %dx%d; %s",
+                         video_format_name(videoFormat), width, height, sink);
+
+        /* SS4S has no driver for frames the client decoded itself, so the hardware
+         * video pipeline stays closed for this codec. */
+        vdec_stream_info.width = width;
+        vdec_stream_info.height = height;
+        return 0;
+    }
+
     switch (videoFormat) {
         case VIDEO_FORMAT_H264:
             info.codec = SS4S_VIDEO_H264;
@@ -224,6 +269,16 @@ int vdec_delegate_setup(int videoFormat, int width, int height, int redrawRate, 
 }
 
 void vdec_delegate_cleanup(void) {
+    aurora_pyrowave_decoder_destroy(pyrowave);
+    pyrowave = NULL;
+    memset(&pyrowaveStats, 0, sizeof(pyrowaveStats));
+    if (!ss4s_video_open) {
+        free(buffer);
+        buffer = NULL;
+        session_pacing_diag_reset();
+        session = NULL;
+        return;
+    }
     assert(player != NULL);
     free(buffer);
     buffer = NULL;
@@ -293,6 +348,10 @@ static int vdec_finish_feed(SS4S_VideoFeedResult result, PDECODE_UNIT decodeUnit
 }
 
 int vdec_delegate_submit(PDECODE_UNIT decodeUnit) {
+    if (pyrowave != NULL) {
+        return vdec_submit_pyrowave(decodeUnit);
+    }
+
     if ((size_t) decodeUnit->fullLength > buffer_size) {
         if ((size_t) decodeUnit->fullLength > DECODER_BUFFER_MAX_SIZE) {
             commons_log_error("Session", "Decode unit %d bytes exceeds %zu byte cap, dropping",
@@ -362,6 +421,53 @@ int vdec_delegate_submit(PDECODE_UNIT decodeUnit) {
     }
     SS4S_VideoFeedResult result = SS4S_PlayerVideoFeed(player, buffer, length, flags);
     return vdec_finish_feed(result, decodeUnit);
+}
+
+static int vdec_submit_pyrowave(PDECODE_UNIT decodeUnit) {
+    aurora_pyrowave_frame_t frame;
+    PyrowaveScanStats stats;
+    size_t count = 0;
+
+    unsigned long ticksms = SDL_GetTicks();
+    if (lastFrameNumber <= 0) {
+        vdec_temp_stats.measurementStartTimestamp = ticksms;
+    } else {
+        vdec_temp_stats.networkDroppedFrames += decodeUnit->frameNumber - (lastFrameNumber + 1);
+        vdec_temp_stats.totalFrames += decodeUnit->frameNumber - (lastFrameNumber + 1);
+    }
+    lastFrameNumber = decodeUnit->frameNumber;
+    vdec_temp_stats.receivedFrames++;
+    vdec_temp_stats.totalFrames++;
+    vdec_temp_stats.receivedBytes += (uint64_t) decodeUnit->fullLength;
+    vdec_temp_stats.totalCaptureLatency += decodeUnit->frameHostProcessingLatency;
+    vdec_temp_stats.totalReassemblyTime +=
+            (uint32_t) ((decodeUnit->enqueueTimeUs - decodeUnit->receiveTimeUs) / 1000);
+
+    for (PLENTRY entry = decodeUnit->bufferList; entry != NULL; entry = entry->next) {
+        if (count == PYROWAVE_MAX_PAYLOADS) {
+            commons_log_warn("PyroWave", "frame %d has more than %d packets, dropping",
+                             decodeUnit->frameNumber, PYROWAVE_MAX_PAYLOADS);
+            return DR_OK;
+        }
+        pyrowavePayloads[count].data = (const uint8_t *) entry->data;
+        pyrowavePayloads[count].size = (size_t) entry->length;
+        pyrowavePayloads[count].intact = (entry->bufferType & BUFFER_TYPE_LOST) == 0;
+        pyrowavePayloads[count].recordStart = (entry->bufferType & BUFFER_TYPE_RECORD_START) != 0;
+        count++;
+    }
+
+    if (aurora_pyrowave_decoder_submit(pyrowave, pyrowavePayloads, count,
+                                      decodeUnit->pyrowaveCriticalPackets, &frame, &stats)) {
+        aurora_pyrowave_present(&frame);
+        vdec_temp_stats.submittedFrames++;
+    }
+
+    aurora_pyrowave_decoder_get_stats(pyrowave, &pyrowaveStats);
+    vdec_stream_info.pyrowaveDropped = pyrowaveStats.framesInvalid + pyrowaveStats.framesUndecodable;
+    vdec_stream_info.pyrowavePartial = pyrowaveStats.recordsSkipped;
+
+    (void) ticksms;
+    return DR_OK;
 }
 
 static inline void vdec_stats_write_begin(void) {

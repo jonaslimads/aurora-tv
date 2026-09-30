@@ -178,6 +178,7 @@ void settings_initialize(app_settings_t *config, char *conf_dir) {
     config->report_gamepad_battery = true;
     config->hevc = true;
     config->av1 = false;
+    config->pyrowave = false;
     config->hevc_sliced_frames = false;
     config->idr_refresh_interval_ms = 0;
     config->render_queue_frames = 0;
@@ -284,6 +285,7 @@ bool settings_save(app_settings_t *config) {
     ini_write_bool(fp, "force_full_color_range", config->force_full_color_range);
     ini_write_bool(fp, "hevc", config->hevc);
     ini_write_bool(fp, "av1", config->av1);
+    ini_write_bool(fp, "pyrowave", config->pyrowave);
     ini_write_bool(fp, "hevc_sliced_frames", config->hevc_sliced_frames);
     ini_write_int(fp, "idr_refresh_interval_ms", config->idr_refresh_interval_ms);
     ini_write_int(fp, "render_queue_frames", config->render_queue_frames);
@@ -439,6 +441,8 @@ static int settings_parse(app_settings_t *config, const char *section, const cha
         config->hevc = INI_IS_TRUE(value);
     } else if (INI_FULL_MATCH("video", "av1") || INI_NAME_MATCH("av1")) {
         config->av1 = INI_IS_TRUE(value);
+    } else if (INI_FULL_MATCH("video", "pyrowave") || INI_NAME_MATCH("pyrowave")) {
+        config->pyrowave = INI_IS_TRUE(value);
     } else if (INI_FULL_MATCH("video", "hevc_sliced_frames") || INI_NAME_MATCH("hevc_sliced_frames")) {
         config->hevc_sliced_frames = INI_IS_TRUE(value);
     } else if (INI_FULL_MATCH("video", "video_simple_sdp")) {

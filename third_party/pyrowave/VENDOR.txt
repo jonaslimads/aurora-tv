@@ -1,0 +1,32 @@
+PyroWave codec, vendored for the Aurora TV client. This tree is a verbatim copy;
+do not edit it by hand. To refresh it, rerun vendor-pyrowave.ps1 (from the host
+repository) against the pinned commits and copy the result over pyrowave/, or
+add a patch under patches/ and re-run the script.
+
+Copied on 2026-09-30 from the host's already-vendored tree at
+    /home/jonas/projects/gaming/Vibepollo/third-party/pyrowave/pyrowave
+which vendor-pyrowave.ps1 had produced from the upstream commits below.
+
+pyrowave:        186f0393b77f7755953b5ecde994bb1cec2e4155 (https://github.com/Themaister/pyrowave)
+Granite:         b6cffd5ce81f540f0855e6778428483e14763d9b (https://github.com/Themaister/Granite)
+volk:            47cddf7ed97b94118a08aacb548a411188e016cc
+vulkan-headers:  6802bb4733b63ed5efd3adb308a6c885ef180ea1
+
+The PyroWave bitstream carries no version field. The host (Vibepollo) and this
+client must be built from the same pyrowave commit; the RTSP handshake advertises
+it as PYROWAVE_BITSTREAM_ID = "186f0393". If the two sides ever disagree, the
+handshake must reject the codec rather than decode a corrupt stream.
+
+patches/ holds the local changes vendor-pyrowave.ps1 re-applies on top of the
+upstream commits; they are copied here for provenance. They do not change the
+bitstream format:
+
+  0001-encoder-buffer-pool.patch       Pools the encoder's host/GPU bitstream and
+                                       metadata buffers across frames.
+  0002-payload-data-444-sizing.patch   Sizes the 4:4:4 payload scratch correctly.
+  0003-decoder-reject-short-block.patch Rejects a block record whose payload_words
+                                       is smaller than the header, so network input
+                                       cannot spin the decoder forever.
+
+The Aurora build wrapper for this tree is CMakeLists.txt next to this file; it is
+Aurora's own file, not part of the vendored tree.

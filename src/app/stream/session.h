@@ -51,6 +51,10 @@ typedef struct VIDEO_INFO {
     bool has_host_latency;
     bool has_decoder_latency;
     bool has_render_queue;
+    /** PyroWave only: frames dropped because they were broken or too damaged. */
+    uint32_t pyrowaveDropped;
+    /** PyroWave only: records that lost a byte and were not given to the codec. */
+    uint32_t pyrowavePartial;
 } VIDEO_INFO;
 
 typedef struct AUDIO_INFO {

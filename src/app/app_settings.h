@@ -71,6 +71,12 @@ typedef struct app_settings_t {
     /** Sunshine/Apollo: negotiate AV1 Main8/Main10 when decoder exposes SS4S_VIDEO_AV1. */
     bool av1;
     /**
+     * PyroWave: intra-only wavelet codec, negotiated instead of HEVC/AV1 when this
+     * build has the codec and a Vulkan device for it. Off by default; a session falls
+     * back to the normal codecs when it is on but unavailable.
+     */
+    bool pyrowave;
+    /**
      * When true (HEVC only), advertise CAPABILITY_SLICES_PER_FRAME (4–8) so the host can
      * slice while encoding. Client still reassembles one whole AU before NDL Feed.
      * Off by default — multi-slice bitstreams are device-dependent on webOS NDL.

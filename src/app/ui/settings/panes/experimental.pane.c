@@ -3,6 +3,8 @@
 #include "pref_obj.h"
 #include "ui/settings/settings.controller.h"
 #include "util/i18n.h"
+
+#include "stream/video/pyrowave_decode.h"
 #include "util/log_overlay.h"
 #include "lvgl/util/lv_app_utils.h"
 #include "app_settings.h"
@@ -138,6 +140,22 @@ static lv_obj_t *create_obj(lv_fragment_t *self, lv_obj_t *container) {
                            "only if you need lower encode latency and the picture stays clean."),
                     false);
     lv_obj_add_event_cb(sliced, reconnect_cb, LV_EVENT_VALUE_CHANGED, pane);
+
+    lv_obj_t *pyrowave = pref_checkbox(view, locstr("PyroWave codec"),
+                                       &app_configuration->pyrowave, false);
+    if (aurora_pyrowave_available()) {
+        lv_obj_clear_state(pyrowave, LV_STATE_DISABLED);
+        pref_desc_label(view,
+                        locstr("Experimental intra-only wavelet codec, negotiated instead of HEVC/AV1. "
+                               "Every frame stands alone, so a lost packet costs one blurred frame "
+                               "instead of a second of artifacts, and there is no keyframe wait. Needs a "
+                               "Vulkan device and a host that speaks PyroWave."),
+                        false);
+    } else {
+        lv_obj_add_state(pyrowave, LV_STATE_DISABLED);
+        pref_desc_label(view, aurora_pyrowave_unavailable_reason(), false);
+    }
+    lv_obj_add_event_cb(pyrowave, reconnect_cb, LV_EVENT_VALUE_CHANGED, pane);
 
     lv_obj_t *idr_checkbox = lv_checkbox_create(view);
     lv_checkbox_set_text(idr_checkbox, locstr("Periodic decoder refresh (HEVC)"));
