@@ -67,10 +67,14 @@ int app_init(app_t *app, app_settings_loader *settings_loader, int argc, char *a
 #if TARGET_WEBOS
     SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_KEYS_BACK, "true");
     SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_KEYS_EXIT, "true");
-    /* Always capture Home (and Win, same policy class) so the TV does not steal them
-     * before SDL. Latched at window creation — restart app after changing related settings. */
-    SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_KEYS_HOME, "true");
-    SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_RIBBON, "false");
+    /* Home (and Win, same policy class) belong to the TV unless the user opted into
+     * "Capture system keys". With this policy on, webOS hands Home to the app for the
+     * whole session, so the remote stops controlling the TV even outside the stream.
+     * Latched at window creation — changing the setting needs an app restart. */
+    if (app->settings.syskey_capture) {
+        SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_KEYS_HOME, "true");
+        SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_RIBBON, "false");
+    }
     SDL_SetHint(SDL_HINT_WEBOS_CURSOR_SLEEP_TIME, "5000");
     SDL_SetHint(SDL_HINT_WEBOS_CURSOR_FREQUENCY, "60");
     SDL_SetHint(SDL_HINT_WEBOS_CURSOR_CALIBRATION_DISABLE, "true");
