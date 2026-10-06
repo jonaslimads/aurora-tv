@@ -19,6 +19,12 @@
 #define USER_TOGGLE_VMOUSE 535
 #define USER_APP_FOREGROUND 536
 #define USER_TOGGLE_SOFT_KEYBOARD 537
+/**
+ * A controller device appeared or disappeared at the SDL/OS level -- in the UI as
+ * well as during a stream. data1 carries the controller index, data2 is 1 when the
+ * device showed up and 0 when it went away.
+ */
+#define USER_GAMEPAD_PRESENT 538
 
 
 extern unsigned int app_userevent_remotebutton;

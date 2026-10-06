@@ -3,4 +3,5 @@ target_sources(moonlight-lib PRIVATE
         img_loader.c
         nullable.c
         font.c
-        log_overlay.c)
+        log_overlay.c
+        log_shipper.c)

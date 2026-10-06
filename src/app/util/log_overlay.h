@@ -11,6 +11,14 @@ typedef enum log_overlay_state {
     LOG_OVERLAY_FROZEN = 2,
 } log_overlay_state_t;
 
+/**
+ * Install the log listener before the UI exists, so lines produced during early startup
+ * (notably the gamepad scan inside app_input_init) reach the ring and the UDP sink.
+ * Without it, the window that matters for a controller that drops on its own is the one
+ * window we cannot see. log_overlay_init() still does the panel and the refresh timer.
+ */
+void log_overlay_arm_early(void);
+
 void log_overlay_init(void);
 
 void log_overlay_deinit(void);

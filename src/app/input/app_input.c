@@ -14,6 +14,9 @@ void app_input_init(app_input_t *input, app_t *app) {
         SDL_SetHint(SDL_HINT_GAMECONTROLLERCONFIG_FILE, app->settings.condb_path);
 #endif
     }
+    /* Must precede the first device open: SDL's HIDAPI PS5 driver picks the DualSense
+     * report behaviour up while opening, not when we later notice the pad. */
+    app_input_apply_gamepad_compat();
     SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
     input->max_num_gamepads = 4;
     input->gamepads_count = 0;

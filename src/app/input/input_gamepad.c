@@ -1,6 +1,7 @@
 #include "input_gamepad.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <SDL_version.h>
@@ -10,9 +11,23 @@
 #include <string.h>
 
 #include "logging.h"
+#include "app.h"
 #include "app_input.h"
+#include "util/bus.h"
+#include "util/user_event.h"
 #if FEATURE_GAMEPAD_TOUCHPAD_GRAB
 #include "gamepad_touchpad.h"
+#endif
+
+#ifdef TARGET_WEBOS
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+
+#include <linux/input.h>
 #endif
 
 static int new_gamepad_state_index(app_input_t *input, SDL_GameController *controller);
@@ -21,13 +36,36 @@ static short next_gamepad_gs_id(app_input_t *input);
 
 static bool is_same_gamepad(const app_gamepad_state_t *state, SDL_GameController *controller);
 
+static void app_input_notify_gamepad_presence(short gs_id, bool present);
+
+static void app_input_log_removal_context(const app_gamepad_state_t *state, SDL_JoystickID sdl_id);
+
 #ifdef TARGET_WEBOS
 static bool str_contains_ci(const char *haystack, const char *needle);
 static bool webos_name_is_non_gamepad(const char *name);
 static bool webos_should_ignore_controller_like_device(const char *name, const char *guidstr, SDL_Joystick *joystick);
 #endif
 
-bool app_input_init_gamepad(app_input_t *input, int device_index) {
+bool app_input_gamepad_compat(int flag) {
+    return app_configuration != NULL && (app_configuration->gamepad_compat & flag) != 0;
+}
+
+void app_input_apply_gamepad_compat(void) {
+    int mask = app_configuration != NULL ? app_configuration->gamepad_compat : 0;
+#ifdef SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, (mask & GAMEPAD_COMPAT_NO_SDL_DUALSENSE_REPORTS) ? "0" : "1");
+#endif
+#ifdef SDL_HINT_JOYSTICK_HIDAPI_PS5_PLAYER_LED
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_PLAYER_LED, (mask & GAMEPAD_COMPAT_NO_SDL_DUALSENSE_REPORTS) ? "0" : "1");
+#endif
+    commons_log_info("Input", "Gamepad compat 0x%02x (player_led=%s sdl_reports=%s hidraw=%s grab=%s)", mask,
+                     (mask & GAMEPAD_COMPAT_NO_PLAYER_LED) ? "off" : "on",
+                     (mask & GAMEPAD_COMPAT_NO_SDL_DUALSENSE_REPORTS) ? "off" : "on",
+                     (mask & GAMEPAD_COMPAT_NO_USB_FEEDBACK) ? "off" : "on",
+                     (mask & GAMEPAD_COMPAT_NO_TOUCHPAD_GRAB) ? "off" : "on");
+}
+
+bool app_input_init_gamepad(app_input_t *input, int device_index, bool notify) {
     SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(device_index);
     char guidstr[33];
     SDL_JoystickGetGUIDString(guid, guidstr, 33);
@@ -43,6 +81,8 @@ bool app_input_init_gamepad(app_input_t *input, int device_index) {
     }
 #endif
     if (SDL_IsGameController(device_index)) {
+        /* Hints are read while opening, so they must be in place before Open. */
+        app_input_apply_gamepad_compat();
         SDL_GameController *controller = SDL_GameControllerOpen(device_index);
         if (!controller) {
             commons_log_error("Input", "Could not open gamecontroller %i. GUID: %s, error: %s", device_index, guidstr,
@@ -78,10 +118,17 @@ bool app_input_init_gamepad(app_input_t *input, int device_index) {
         // Keep the platform's input stack away from the controller touchpad, so it
         // can't consume swipes as system gestures. SDL's own touchpad events are
         // unaffected.
-        state->touchpad = gamepad_touchpad_grab(controller);
+        if (!app_input_gamepad_compat(GAMEPAD_COMPAT_NO_TOUCHPAD_GRAB)) {
+            state->touchpad = gamepad_touchpad_grab(controller);
+        }
 #endif
         input->activeGamepadMask |= 1 << state->gs_id;
         input->gamepads_count++;
+        if (notify) {
+            /* Only hotplug is news; the scans at startup and at stream start walk in
+             * pads that were already in the TV, and toasting those is noise. */
+            app_input_notify_gamepad_presence(state->gs_id, true);
+        }
         return true;
     } else {
         commons_log_warn("Input", "Unrecognized game controller %s. GUID: %s", name, guidstr);
@@ -102,7 +149,7 @@ int app_input_scan_gamepads(app_input_t *input) {
             continue;
         }
 #endif
-        if (app_input_init_gamepad(input, device_index)) {
+        if (app_input_init_gamepad(input, device_index, false)) {
             opened++;
         }
     }
@@ -140,9 +187,99 @@ void app_input_close_gamepad(app_input_t *input, SDL_JoystickID sdl_id) {
     gamepad_touchpad_release(state->touchpad);
     state->touchpad = NULL;
 #endif
+    app_input_log_removal_context(state, sdl_id);
     SDL_GameControllerClose(state->controller);
     commons_log_info("Input", "Controller #%d disconnected, sdl_id: %d", state->gs_id, sdl_id);
+    app_input_notify_gamepad_presence(state->gs_id, false);
     app_input_gamepad_state_deinit(state);
+}
+
+/** Tell every UI fragment that this controller slot gained or lost a device. */
+static void app_input_notify_gamepad_presence(short gs_id, bool present) {
+    bus_pushevent(USER_GAMEPAD_PRESENT, (void *) (intptr_t) gs_id, (void *) (intptr_t) (present ? 1 : 0));
+}
+
+#ifdef TARGET_WEBOS
+/** Every /dev/input node the app can reach, with the HID name behind it. */
+static void app_input_log_dev_input_nodes(void) {
+    DIR *dir = opendir("/dev/input");
+    if (dir == NULL) {
+        commons_log_warn("Input", "Removal context: /dev/input is not readable (%s)", strerror(errno));
+        return;
+    }
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (strncmp(ent->d_name, "event", 5) != 0) {
+            continue;
+        }
+        char path[64];
+        snprintf(path, sizeof(path), "/dev/input/%s", ent->d_name);
+        struct stat st;
+        if (stat(path, &st) != 0) {
+            commons_log_warn("Input", "Removal context: %s cannot be stat'ed (%s)", path, strerror(errno));
+            continue;
+        }
+        int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0) {
+            commons_log_warn("Input", "Removal context: %s exists (dev %u:%u) but will not open (%s)", path,
+                             major(st.st_rdev), minor(st.st_rdev), strerror(errno));
+            continue;
+        }
+        char name[128];
+        memset(name, 0, sizeof(name));
+        if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name) < 0) {
+            snprintf(name, sizeof(name), "(no name)");
+        }
+        close(fd);
+        commons_log_info("Input", "Removal context: %s exists (dev %u:%u) name='%s'", path, major(st.st_rdev),
+                         minor(st.st_rdev), name);
+    }
+    closedir(dir);
+}
+#endif
+
+/**
+ * What SDL still sees, taken while the removal is being handled.
+ *
+ * A pad that flaps needs one question answered before anything is fixed: did the
+ * device node go away (USB/HID re-enumeration, which the app can only paper over),
+ * or is the node untouched and SDL alone decided the pad died (a read error or a
+ * udev event, which is ours to handle differently)? Both answers come out of this
+ * snapshot, and a flapping pad repeats it every few seconds on its own.
+ *
+ * Only cached SDL state is read here. SDL_JoystickNameForIndex is deliberately not
+ * called: it can briefly touch the device, which would perturb what we measure.
+ */
+static void app_input_log_removal_context(const app_gamepad_state_t *state, SDL_JoystickID sdl_id) {
+    int num = SDL_NumJoysticks();
+    bool still_listed = false;
+    char listed[192];
+    size_t used = 0;
+    listed[0] = '\0';
+    for (int i = 0; i < num; i++) {
+        SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(i);
+        still_listed = still_listed || id == sdl_id;
+        int written = snprintf(listed + used, sizeof(listed) - used, " [%d] id=%d%s", i, (int) id,
+                              SDL_IsGameController(i) ? "" : " (no gamepad mapping)");
+        if (written < 0 || (size_t) written >= sizeof(listed) - used) {
+            break;
+        }
+        used += (size_t) written;
+    }
+    commons_log_warn("Input",
+                     "Controller #%d (sdl_id %d, node %s) removal: SDL lists %d device(s), this id is %s%s",
+                     state->gs_id, (int) sdl_id, state->device_path[0] != '\0' ? state->device_path : "(unknown)", num,
+                     still_listed ? "STILL PRESENT" : "gone", listed);
+#if FEATURE_GAMEPAD_TOUCHPAD_GRAB
+    if (state->touchpad != NULL) {
+        commons_log_warn("Input", "Controller #%d held an exclusive touchpad grab when it was removed", state->gs_id);
+    }
+#endif
+    commons_log_warn("Input", "Gamepad compat at removal: 0x%02x", app_configuration != NULL
+                                                                    ? app_configuration->gamepad_compat : 0);
+#ifdef TARGET_WEBOS
+    app_input_log_dev_input_nodes();
+#endif
 }
 
 app_gamepad_state_t *app_input_gamepad_state_init(app_input_t *input, SDL_GameController *controller) {
@@ -171,22 +308,42 @@ app_gamepad_state_t *app_input_gamepad_state_init(app_input_t *input, SDL_GameCo
     state->instance_id = sdl_id;
     state->controller = controller;
     state->guid = SDL_JoystickGetGUID(joystick);
+#if SDL_VERSION_ATLEAST(2, 24, 0)
+    {
+        const char *path = SDL_JoystickPath(joystick);
+        if (path != NULL) {
+            snprintf(state->device_path, sizeof(state->device_path), "%s", path);
+        }
+    }
+#endif
 #if SDL_VERSION_ATLEAST(2, 0, 14)
     const char *serial = SDL_JoystickGetSerial(joystick);
     state->serial_crc = serial != NULL ? SDL_crc32(0, (const void *) serial, strlen(serial)) : 0;
 #endif
 #if SDL_VERSION_ATLEAST(2, 0, 12)
-    SDL_GameControllerSetPlayerIndex(controller, state->gs_id);
+    /* SDL pushes a DualSense player-LED output report for this. A pad that only copied
+     * the descriptors can reset on it, so compat mode skips the request. */
+    if (!app_input_gamepad_compat(GAMEPAD_COMPAT_NO_PLAYER_LED)) {
+        SDL_GameControllerSetPlayerIndex(controller, state->gs_id);
+    }
 #endif
 #if !SDL_VERSION_ATLEAST(2, 0, 9)
     state->haptic = haptic;
     state->haptic_effect_id = -1;
 #endif
 #if TARGET_WEBOS
-    state->ds_usb = dualsense_usb_open(controller);
+    state->ds_usb = app_input_gamepad_compat(GAMEPAD_COMPAT_NO_USB_FEEDBACK)
+                    ? NULL
+                    : dualsense_usb_open(controller);
 #endif
     commons_log_info("Input", "Controller #%d (%s) connected", state->gs_id,
                      SDL_JoystickName(joystick));
+    commons_log_info("Input", "Controller #%d compat 0x%02x: player_led=%s sdl_reports=%s hidraw=%s grab=%s",
+                     state->gs_id, app_configuration != NULL ? app_configuration->gamepad_compat : 0,
+                     app_input_gamepad_compat(GAMEPAD_COMPAT_NO_PLAYER_LED) ? "off" : "on",
+                     app_input_gamepad_compat(GAMEPAD_COMPAT_NO_SDL_DUALSENSE_REPORTS) ? "off" : "on",
+                     app_input_gamepad_compat(GAMEPAD_COMPAT_NO_USB_FEEDBACK) ? "off" : "on",
+                     app_input_gamepad_compat(GAMEPAD_COMPAT_NO_TOUCHPAD_GRAB) ? "off" : "on");
 #if SDL_VERSION_ATLEAST(2, 24, 0)
     const char *path = SDL_JoystickPath(joystick);
     commons_log_info("Input", "Controller #%d device: %s, rumble: %s, writable: %s", state->gs_id,

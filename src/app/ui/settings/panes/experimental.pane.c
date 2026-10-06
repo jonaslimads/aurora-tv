@@ -1,11 +1,13 @@
 #include "app.h"
 
 #include "pref_obj.h"
+#include "input/input_gamepad.h"
 #include "ui/settings/settings.controller.h"
 #include "util/i18n.h"
 
 #include "stream/video/pyrowave_decode.h"
 #include "util/log_overlay.h"
+#include "util/log_shipper.h"
 #include "lvgl/util/lv_app_utils.h"
 #include "app_settings.h"
 
@@ -25,6 +27,7 @@ typedef struct experimental_pane_t {
     int idr_refresh_slider_value;
     lv_obj_t *abr_dropdown;
     pref_dropdown_int_entry_t abr_entries[3];
+    pref_dropdown_int_entry_t compat_entries[7];
 #if FEATURE_I18N_LANGUAGE_SETTINGS
     pref_dropdown_string_entry_t lang_entries[16];
     int lang_entries_len;
@@ -43,8 +46,6 @@ static void reload_ui_after_locale(void *userdata);
 
 static void on_show_logs_changed(lv_event_t *e);
 
-static void reconnect_cb(lv_event_t *e);
-
 static void reset_defaults_clicked(lv_event_t *e);
 
 static void reset_defaults_confirm_cb(lv_event_t *e);
@@ -61,6 +62,12 @@ static void idr_refresh_checkbox_cb(lv_event_t *e);
 
 static void idr_refresh_slider_cb(lv_event_t *e);
 
+static void on_log_ship_changed(lv_event_t *e);
+
+static void on_gamepad_compat_changed(lv_event_t *e);
+
+static void reconnect_cb(lv_event_t *e);
+
 const lv_fragment_class_t settings_pane_experimental_cls = {
         .constructor_cb = pane_ctor,
         .create_obj_cb = create_obj,
@@ -73,6 +80,13 @@ static void pane_ctor(lv_fragment_t *self, void *args) {
     pane->abr_entries[0] = (pref_dropdown_int_entry_t) {locstr("Balanced"), 0, true};
     pane->abr_entries[1] = (pref_dropdown_int_entry_t) {locstr("Quality"), 1, false};
     pane->abr_entries[2] = (pref_dropdown_int_entry_t) {locstr("Low latency"), 2, false};
+    pane->compat_entries[0] = (pref_dropdown_int_entry_t) {locstr("Standard"), 0, true};
+    pane->compat_entries[1] = (pref_dropdown_int_entry_t) {locstr("Skip player-LED request"), 1, false};
+    pane->compat_entries[2] = (pref_dropdown_int_entry_t) {locstr("No SDL DualSense reports"), 2, false};
+    pane->compat_entries[3] = (pref_dropdown_int_entry_t) {locstr("Skip LED + SDL reports"), 3, false};
+    pane->compat_entries[4] = (pref_dropdown_int_entry_t) {locstr("No USB (hidraw) feedback"), 4, false};
+    pane->compat_entries[5] = (pref_dropdown_int_entry_t) {locstr("No touchpad grab"), 8, false};
+    pane->compat_entries[6] = (pref_dropdown_int_entry_t) {locstr("All four off"), 15, false};
 #if FEATURE_I18N_LANGUAGE_SETTINGS
     pane->lang_entries_len = 0;
     for (int i = 0; i18n_entry_at(i)->locale && pane->lang_entries_len < 16; i++) {
@@ -113,6 +127,17 @@ static lv_obj_t *create_obj(lv_fragment_t *self, lv_obj_t *container) {
         log_overlay_set_enabled(true);
     }
 
+    if (log_shipper_has_target()) {
+        lv_obj_t *ship = pref_checkbox(view, locstr("Stream logs to the debug host"),
+                                       &app_configuration->log_ship_enabled, false);
+        char ship_desc[192];
+        snprintf(ship_desc, sizeof(ship_desc),
+                 locstr("Sends every log line over UDP to %s while on. Off means no socket is opened."),
+                 log_shipper_target());
+        pref_desc_label(view, ship_desc, false);
+        lv_obj_add_event_cb(ship, on_log_ship_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    }
+
 #if TARGET_WEBOS
     if (webos_game_mode_is_rooted()) {
         pref_checkbox(view, locstr("Game mode"), &app_configuration->game_mode, false);
@@ -121,6 +146,20 @@ static lv_obj_t *create_obj(lv_fragment_t *self, lv_obj_t *container) {
                         false);
     }
 #endif
+
+    pref_header(view, locstr("Controller"));
+
+    lv_obj_t *compat = pref_dropdown_int(view, pane->compat_entries,
+                                         sizeof(pane->compat_entries) / sizeof(pane->compat_entries[0]),
+                                         &app_configuration->gamepad_compat, NULL);
+    lv_obj_set_width(compat, LV_PCT(100));
+    pref_desc_label(view,
+                    locstr("For pads that copy the DualSense descriptors (GameSir G8 and similar) but drop off USB "
+                           "about a second after something writes the DualSense protocol to them, then come back in "
+                           "a loop. Change one step at a time until the drops stop; each step applies on the next "
+                           "controller connect. moonlight.ini key gamepad_compat accepts any combination (0-15)."),
+                    false);
+    lv_obj_add_event_cb(compat, on_gamepad_compat_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
     pref_header(view, locstr("Video"));
 
@@ -282,6 +321,18 @@ static void abr_checkbox_cb(lv_event_t *e) {
 static void on_show_logs_changed(lv_event_t *e) {
     (void) e;
     log_overlay_set_enabled(app_configuration->show_logs);
+}
+
+static void on_gamepad_compat_changed(lv_event_t *e) {
+    (void) e;
+    /* Re-arms the SDL hints and logs the mask; the pad itself picks it up when it next
+     * connects, which the drop loop does by itself within a couple of seconds. */
+    app_input_apply_gamepad_compat();
+}
+
+static void on_log_ship_changed(lv_event_t *e) {
+    (void) e;
+    log_shipper_set_enabled(app_configuration->log_ship_enabled);
 }
 
 static void idr_refresh_state_update(experimental_pane_t *pane) {

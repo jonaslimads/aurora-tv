@@ -67,6 +67,19 @@ typedef struct app_settings_t {
     bool force_full_color_range; /* SDR only: request full-range YUV (0-255) from host. No effect when HDR is on. */
     /** Report pad battery to host (Vibepollo/Sunshine virtual gamepads). Default on. */
     bool report_gamepad_battery;
+    /**
+     * Workarounds for pads that copy the DualSense descriptors without implementing its
+     * output reports -- the GameSir G8 enumerates as 054c:0ce6 over USB and re-enumerates
+     * on the bus about a second after Aurora/SDL talk the DualSense protocol to it.
+     * Bit mask, 0 keeps the standard behaviour; see GAMEPAD_COMPAT_* in input_gamepad.h.
+     * The Experimental pane offers presets; moonlight.ini can combine any of them.
+     */
+    int gamepad_compat;
+    /**
+     * Copy log lines to the UDP sink compiled in with AURORA_LOG_SHIP_TARGET. Off by
+     * default: nobody streams logs from a living-room TV unless they asked for it.
+     */
+    bool log_ship_enabled;
     bool hevc;
     /** Sunshine/Apollo: negotiate AV1 Main8/Main10 when decoder exposes SS4S_VIDEO_AV1. */
     bool av1;

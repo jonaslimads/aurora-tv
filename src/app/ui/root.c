@@ -12,6 +12,7 @@
 
 #include "streaming/streaming.controller.h"
 #include "launcher/launcher.controller.h"
+#include "common/notice.h"
 
 #include "logging.h"
 #include "util/bus.h"
@@ -173,6 +174,20 @@ bool ui_dispatch_userevent(app_t *app, int which, void *data1, void *data2) {
     handled |= app->ui.fm != NULL && lv_fragment_manager_send_event(app->ui.fm, which, &userdata);
     if (!handled) {
         switch (which) {
+            case USER_GAMEPAD_PRESENT: {
+                /* No fragment took it, so this is the launcher or a dialog: put the
+                 * news on the system layer, where every screen can show it. */
+                short controller_id = (short) (intptr_t) data1;
+                bool connected = (intptr_t) data2 != 0;
+                char message[96];
+                /* 1-based: this is the player number the host shows in its own UI. */
+                snprintf(message, sizeof(message),
+                         locstr(connected ? "Controller %d connected" : "Controller %d disconnected"),
+                         (int) controller_id + 1);
+                /* A dropout is worth reading to the end; the return is confirmation. */
+                ui_notice_show_timed(message, connected ? 2000 : 4000);
+                return true;
+            }
             case USER_STREAM_OPEN: {
                 if (app->ss4s.video_cap.transform & SS4S_VIDEO_CAP_TRANSFORM_UI_EXCLUSIVE) {
                     SDL_ShowCursor(SDL_FALSE);

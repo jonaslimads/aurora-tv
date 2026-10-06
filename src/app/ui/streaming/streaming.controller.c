@@ -44,6 +44,12 @@ static void streaming_notice_hide_timer_cb(lv_timer_t *timer);
 /** How long the feedback for a gamepad shortcut stays on screen. */
 #define TOGGLE_NOTICE_MS 2000
 
+/**
+ * A controller dropping is the one notice worth reading to the end: it is also the
+ * evidence that tells a dropped device apart from a host-side pad reset.
+ */
+#define GAMEPAD_LOST_NOTICE_MS 4000
+
 static void soft_keyboard_close_cb(void *userdata);
 
 static bool show_overlay(streaming_controller_t *controller);
@@ -449,9 +455,21 @@ static void controller_dtor(lv_fragment_t *self) {
 }
 
 static bool on_event(lv_fragment_t *self, int code, void *userdata) {
-    LV_UNUSED(userdata);
     streaming_controller_t *controller = (streaming_controller_t *) self;
     switch (code) {
+        case USER_GAMEPAD_PRESENT: {
+            const ui_userevent_t *event = userdata;
+            short controller_id = (short) (intptr_t) event->data1;
+            bool connected = (intptr_t) event->data2 != 0;
+            char notice[96];
+            /* 1-based: this is the player number the host shows in its own UI. */
+            snprintf(notice, sizeof(notice),
+                     locstr(connected ? "Controller %d connected" : "Controller %d disconnected"),
+                     controller_id + 1);
+            streaming_notice_show_timed(controller, notice,
+                                        connected ? TOGGLE_NOTICE_MS : GAMEPAD_LOST_NOTICE_MS);
+            return true;
+        }
         case USER_STREAM_CONNECTING: {
             controller->progress = progress_dialog_create(locstr("Connecting..."));
             if (lv_obj_check_type(controller->progress->parent, &lv_msgbox_backdrop_class)) {

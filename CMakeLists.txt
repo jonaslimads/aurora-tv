@@ -88,6 +88,12 @@ else ()
 endif ()
 option(FEATURE_GAMEPAD_TOUCHPAD_GRAB "Take exclusive access of controller touchpad devices"
         ${GAMEPAD_TOUCHPAD_GRAB_DEFAULT})
+
+# Debug builds only: copy every log line of INFO level and above to a UDP sink on the
+# LAN, so a TV's log can be read from another machine without SSH. See
+# tools/aurora_log_server.py. Leave empty for anything that leaves the house.
+set(AURORA_LOG_SHIP_TARGET "" CACHE STRING
+        "host:port to UDP-copy app log lines to (debug builds; empty disables)")
 set(FEATURE_INPUT_LIBCEC ON)
 set(FEATURE_EMBEDDED_SHELL OFF)
 set(FEATURE_WINDOW_FULLSCREEN_DESKTOP ON)
@@ -278,6 +284,10 @@ target_compile_definitions(moonlight-lib PUBLIC "$<$<CONFIG:DEBUG>:DEBUG>")
 string(LENGTH ${CMAKE_SOURCE_DIR} SOURCE_DIR_LENGTH)
 target_compile_definitions(moonlight-lib PUBLIC SOURCE_DIR_LENGTH=${SOURCE_DIR_LENGTH})
 target_compile_definitions(moonlight-lib PUBLIC APP_VERSION="${PROJECT_VERSION}" APPLOG_HOST=1)
+if (NOT AURORA_LOG_SHIP_TARGET STREQUAL "")
+    target_compile_definitions(moonlight-lib PUBLIC AURORA_LOG_SHIP_TARGET="${AURORA_LOG_SHIP_TARGET}")
+    message(WARNING "Log shipper is ON: app log lines are copied to ${AURORA_LOG_SHIP_TARGET} over UDP")
+endif ()
 target_compile_definitions(moonlight-lib PUBLIC LV_LVGL_H_INCLUDE_SIMPLE=1)
 
 target_include_directories(moonlight-lib PUBLIC ${CMAKE_SOURCE_DIR}/core/libgamestream)

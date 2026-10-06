@@ -451,6 +451,14 @@ msgstr "Mouse virtual ligado"
 msgid "Virtual mouse off"
 msgstr "Mouse virtual desligado"
 
+#: src/app/ui/streaming/streaming.controller.c
+msgid "Controller %d connected"
+msgstr "Controle %d conectado"
+
+#: src/app/ui/streaming/streaming.controller.c
+msgid "Controller %d disconnected"
+msgstr "Controle %d desconectado"
+
 #: src/app/ui/settings/panes/input.pane.c:98
 msgid "Stick drift correction"
 msgstr "Correção de drift dos analógicos"
@@ -931,3 +939,36 @@ msgstr "total"
 msgid "not available"
 msgstr "indisponível"
 
+
+msgid "Controller"
+msgstr "Controle"
+
+msgid "Standard"
+msgstr "Padrão"
+
+msgid "Skip player-LED request"
+msgstr "Não pedir LED de jogador"
+
+msgid "No SDL DualSense reports"
+msgstr "Sem relatórios DualSense do SDL"
+
+msgid "Skip LED + SDL reports"
+msgstr "Sem LED nem relatórios do SDL"
+
+msgid "No USB (hidraw) feedback"
+msgstr "Sem feedback USB (hidraw)"
+
+msgid "No touchpad grab"
+msgstr "Não tomar o touchpad"
+
+msgid "All four off"
+msgstr "Os quatro desligados"
+
+msgid "For pads that copy the DualSense descriptors (GameSir G8 and similar) but drop off USB about a second after something writes the DualSense protocol to them, then come back in a loop. Change one step at a time until the drops stop; each step applies on the next controller connect. moonlight.ini key gamepad_compat accepts any combination (0-15)."
+msgstr "Para controles que copiam os descritores do DualSense (GameSir G8 e similares) mas caem do USB cerca de um segundo depois que alguém escreve o protocolo DualSense neles, e voltam em loop. Mude um passo por vez até as quedas pararem; cada passo vale na próxima conexão do controle. A chave gamepad_compat no moonlight.ini aceita qualquer combinação (0-15)."
+
+msgid "Stream logs to the debug host"
+msgstr "Enviar logs ao host de debug"
+
+msgid "Sends every log line over UDP to %s while on. Off means no socket is opened."
+msgstr "Envia cada linha de log por UDP para %s enquanto estiver ligado. Desligado significa que nenhum socket é aberto."

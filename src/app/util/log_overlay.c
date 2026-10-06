@@ -2,6 +2,7 @@
 
 #include "app.h"
 #include "app_settings.h"
+#include "log_shipper.h"
 #include "lvgl/theme/lv_theme_moonlight_colors.h"
 #include "stream/session.h"
 #include "stream/video/session_video.h"
@@ -348,6 +349,13 @@ static void apply_off(void) {
     }
 }
 
+void log_overlay_arm_early(void) {
+    if (ring_lock == NULL) {
+        ring_lock = SDL_CreateMutex();
+    }
+    commons_log_set_listener(log_overlay_on_log);
+}
+
 void log_overlay_init(void) {
     if (ring_lock == NULL) {
         ring_lock = SDL_CreateMutex();
@@ -389,6 +397,10 @@ void log_overlay_reassert(void) {
 }
 
 void log_overlay_on_log(commons_log_level level, const char *tag, const char *message) {
+    /* This is the app's only log listener, so it is also where the debug build's UDP
+     * copy splits off -- ahead of the overlay's capture gate and its own filters, so
+     * the sink sees lines the panel would drop. */
+    log_shipper_write(level, tag, message);
     if (!capture || message == NULL) {
         return;
     }

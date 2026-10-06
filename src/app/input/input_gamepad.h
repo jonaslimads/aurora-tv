@@ -7,7 +7,43 @@
 typedef struct app_input_t app_input_t;
 typedef struct app_gamepad_state_t app_gamepad_state_t;
 
-bool app_input_init_gamepad(app_input_t *input, int device_index);
+/**
+ * Bits of app_settings_t::gamepad_compat. Each one drops a single writer that talks the
+ * DualSense protocol to a pad which only copied its descriptors (054c:0ce6). On such a
+ * pad any of these can make the firmware re-enumerate on the USB bus a second later,
+ * which looks exactly like a controller that keeps disconnecting on its own.
+ */
+typedef enum gamepad_compat_t {
+    /** Skip our SDL_GameControllerSetPlayerIndex() call for this pad. */
+    GAMEPAD_COMPAT_NO_PLAYER_LED = 0x01,
+    /** Forbid SDL's HIDAPI PS5 driver from sending rumble/player-LED output reports. */
+    GAMEPAD_COMPAT_NO_SDL_DUALSENSE_REPORTS = 0x02,
+    /** Skip our own /dev/hidraw DualSense feedback handle (rumble, lightbar, triggers). */
+    GAMEPAD_COMPAT_NO_USB_FEEDBACK = 0x04,
+    /** Skip the exclusive EVIOCGRAB on the controller's touchpad node. */
+    GAMEPAD_COMPAT_NO_TOUCHPAD_GRAB = 0x08,
+    GAMEPAD_COMPAT_ALL = 0x0f,
+} gamepad_compat_t;
+
+/**
+ * Push the compat bits into the SDL hints SDL consults when it opens a pad, and log the
+ * active mask. Call before the first device open and again per hotplug: the HIDAPI PS5
+ * driver reads the hints while opening, so setting them later would not un-write a pad
+ * that is already bound.
+ */
+void app_input_apply_gamepad_compat(void);
+
+/** True when the compat mask asks us not to touch @p flag for this pad. */
+bool app_input_gamepad_compat(int flag);
+
+/**
+ * Open the SDL joystick at @p device_index and give it a controller slot.
+ *
+ * @param notify raise the on-screen notice for the new controller. Hotplug does;
+ *               the scans at startup and at stream start do not, because those pads
+ *               were already in the room and toasting them is noise, not news.
+ */
+bool app_input_init_gamepad(app_input_t *input, int device_index, bool notify);
 
 void app_input_close_gamepad(app_input_t *input, SDL_JoystickID sdl_id);
 
