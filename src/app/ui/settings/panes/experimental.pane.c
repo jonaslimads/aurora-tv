@@ -6,6 +6,7 @@
 
 #include "stream/video/pyrowave_decode.h"
 #include "util/log_overlay.h"
+#include "util/log_shipper.h"
 #include "lvgl/util/lv_app_utils.h"
 #include "app_settings.h"
 
@@ -43,8 +44,6 @@ static void reload_ui_after_locale(void *userdata);
 
 static void on_show_logs_changed(lv_event_t *e);
 
-static void reconnect_cb(lv_event_t *e);
-
 static void reset_defaults_clicked(lv_event_t *e);
 
 static void reset_defaults_confirm_cb(lv_event_t *e);
@@ -60,6 +59,10 @@ static void idr_checkbox_activate(lv_event_t *e);
 static void idr_refresh_checkbox_cb(lv_event_t *e);
 
 static void idr_refresh_slider_cb(lv_event_t *e);
+
+static void on_log_ship_changed(lv_event_t *e);
+
+static void reconnect_cb(lv_event_t *e);
 
 const lv_fragment_class_t settings_pane_experimental_cls = {
         .constructor_cb = pane_ctor,
@@ -111,6 +114,17 @@ static lv_obj_t *create_obj(lv_fragment_t *self, lv_obj_t *container) {
     lv_obj_add_event_cb(logs, on_show_logs_changed, LV_EVENT_VALUE_CHANGED, NULL);
     if (app_configuration->show_logs) {
         log_overlay_set_enabled(true);
+    }
+
+    if (log_shipper_has_target()) {
+        lv_obj_t *ship = pref_checkbox(view, locstr("Stream logs to the debug host"),
+                                       &app_configuration->log_ship_enabled, false);
+        char ship_desc[192];
+        snprintf(ship_desc, sizeof(ship_desc),
+                 locstr("Sends every log line over UDP to %s while on. Off means no socket is opened."),
+                 log_shipper_target());
+        pref_desc_label(view, ship_desc, false);
+        lv_obj_add_event_cb(ship, on_log_ship_changed, LV_EVENT_VALUE_CHANGED, NULL);
     }
 
 #if TARGET_WEBOS
@@ -282,6 +296,11 @@ static void abr_checkbox_cb(lv_event_t *e) {
 static void on_show_logs_changed(lv_event_t *e) {
     (void) e;
     log_overlay_set_enabled(app_configuration->show_logs);
+}
+
+static void on_log_ship_changed(lv_event_t *e) {
+    (void) e;
+    log_shipper_set_enabled(app_configuration->log_ship_enabled);
 }
 
 static void idr_refresh_state_update(experimental_pane_t *pane) {

@@ -67,6 +67,11 @@ typedef struct app_settings_t {
     bool force_full_color_range; /* SDR only: request full-range YUV (0-255) from host. No effect when HDR is on. */
     /** Report pad battery to host (Vibepollo/Sunshine virtual gamepads). Default on. */
     bool report_gamepad_battery;
+    /**
+     * Copy log lines to the UDP sink compiled in with AURORA_LOG_SHIP_TARGET. Off by
+     * default: nobody streams logs from a living-room TV unless they asked for it.
+     */
+    bool log_ship_enabled;
     bool hevc;
     /** Sunshine/Apollo: negotiate AV1 Main8/Main10 when decoder exposes SS4S_VIDEO_AV1. */
     bool av1;

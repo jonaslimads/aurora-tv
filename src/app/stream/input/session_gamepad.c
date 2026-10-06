@@ -145,6 +145,19 @@ static uint16_t stream_input_moonlight_active_mask(const stream_input_t *input)
     return (uint16_t) input->input->activeGamepadMask;
 }
 
+/**
+ * Every controller packet carries the pad-presence mask, and a packet with this
+ * pad's own bit clear is an unplug command to the host -- even when nothing was
+ * disconnected. Only stream_input_send_gamepad_remove means to send one.
+ */
+static void stream_input_warn_mask_excludes_pad(const stream_input_t *input, const app_gamepad_state_t *gamepad) {
+    uint16_t mask = stream_input_moonlight_active_mask(input);
+    if ((mask & (uint16_t) (1u << (unsigned) gamepad->gs_id)) == 0) {
+        commons_log_warn("Input", "Controller #%d state sent with mask 0x%x; the host reads that as an unplug",
+                         gamepad->gs_id, mask);
+    }
+}
+
 void stream_input_touchpad_mouse_init(stream_input_t *input) {
     if (input->touchpads != NULL ||
         input->touchpad_mode != TOUCHPAD_MODE_MOUSE) {
@@ -423,6 +436,7 @@ void stream_input_handle_caxis(stream_input_t *input, const SDL_ControllerAxisEv
     if (!stream_input_gamepad_sends_moonlight(input, gamepad)) {
         return;
     }
+    stream_input_warn_mask_excludes_pad(input, gamepad);
 
     if (vmouse_intercepted(input, gamepad)) {
         LiSendMultiControllerEvent(gamepad->gs_id, input->input->activeGamepadMask, gamepad->buttons, 0, 0,
@@ -922,6 +936,7 @@ static void stream_input_send_buttons(stream_input_t *input, app_gamepad_state_t
     if (!stream_input_gamepad_sends_moonlight(input, gamepad)) {
         return;
     }
+    stream_input_warn_mask_excludes_pad(input, gamepad);
     LiSendMultiControllerEvent(gamepad->gs_id, input->input->activeGamepadMask, gamepad->buttons, gamepad->leftTrigger,
                                gamepad->rightTrigger, gamepad->leftStickX, gamepad->leftStickY, gamepad->rightStickX,
                                gamepad->rightStickY);
@@ -1101,6 +1116,7 @@ static void release_buttons(stream_input_t *input, app_gamepad_state_t *gamepad)
     if (!stream_input_gamepad_sends_moonlight(input, gamepad)) {
         return;
     }
+    stream_input_warn_mask_excludes_pad(input, gamepad);
     LiSendMultiControllerEvent(gamepad->gs_id, input->input->activeGamepadMask, gamepad->buttons, gamepad->leftTrigger,
                                gamepad->rightTrigger, gamepad->leftStickX, gamepad->leftStickY, gamepad->rightStickX,
                                gamepad->rightStickY);

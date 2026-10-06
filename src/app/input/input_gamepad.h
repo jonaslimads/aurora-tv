@@ -7,7 +7,14 @@
 typedef struct app_input_t app_input_t;
 typedef struct app_gamepad_state_t app_gamepad_state_t;
 
-bool app_input_init_gamepad(app_input_t *input, int device_index);
+/**
+ * Open the SDL joystick at @p device_index and give it a controller slot.
+ *
+ * @param notify raise the on-screen notice for the new controller. Hotplug does;
+ *               the scans at startup and at stream start do not, because those pads
+ *               were already in the room and toasting them is noise, not news.
+ */
+bool app_input_init_gamepad(app_input_t *input, int device_index, bool notify);
 
 void app_input_close_gamepad(app_input_t *input, SDL_JoystickID sdl_id);
 

@@ -451,6 +451,14 @@ msgstr "Mouse virtual ligado"
 msgid "Virtual mouse off"
 msgstr "Mouse virtual desligado"
 
+#: src/app/ui/streaming/streaming.controller.c
+msgid "Controller %d connected"
+msgstr "Controle %d conectado"
+
+#: src/app/ui/streaming/streaming.controller.c
+msgid "Controller %d disconnected"
+msgstr "Controle %d desconectado"
+
 #: src/app/ui/settings/panes/input.pane.c:98
 msgid "Stick drift correction"
 msgstr "Correção de drift dos analógicos"
@@ -931,3 +939,8 @@ msgstr "total"
 msgid "not available"
 msgstr "indisponível"
 
+msgid "Stream logs to the debug host"
+msgstr "Enviar logs ao host de debug"
+
+msgid "Sends every log line over UDP to %s while on. Off means no socket is opened."
+msgstr "Envia cada linha de log por UDP para %s enquanto estiver ligado. Desligado significa que nenhum socket é aberto."

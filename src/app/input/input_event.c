@@ -14,7 +14,7 @@ void app_input_handle_event(app_input_t *input, const SDL_Event *event) {
             commons_log_warn("Input", "Too many controllers, ignoring.");
             return;
         }
-        app_input_init_gamepad(input, event->jdevice.which);
+        app_input_init_gamepad(input, event->jdevice.which, true);
     } else if (event->type == SDL_JOYDEVICEREMOVED) {
         app_input_close_gamepad(input, event->jdevice.which);
     } else if (event->type == SDL_CONTROLLERDEVICEADDED) {

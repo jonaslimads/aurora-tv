@@ -27,6 +27,7 @@
 #include "stream/embed_wrapper.h"
 #include "profile/profile_manager.h"
 #include "util/log_overlay.h"
+#include "util/log_shipper.h"
 
 PCONFIGURATION app_configuration = NULL;
 
@@ -95,6 +96,12 @@ int app_init(app_t *app, app_settings_loader *settings_loader, int argc, char *a
     SDL_RegisterEvents(1);
     commons_log_info("APP", "UI locale: %s (%s)", i18n_locale(), locstr("[Localized Language]"));
 
+    /* Arm the log listener and the UDP sink before any device is opened: the pads that
+     * were already plugged in are enumerated inside app_input_init(), and that scan is
+     * exactly the log window someone needs when a controller drops on its own. */
+    log_overlay_arm_early();
+    log_shipper_set_enabled(app->settings.log_ship_enabled);
+
     app_input_init(&app->input, app);
 
     app_ui_init(&app->ui, app);
@@ -134,6 +141,7 @@ void app_deinit(app_t *app) {
 
     SDL_Quit();
 
+    log_shipper_deinit();
     log_overlay_deinit();
     commons_logging_deinit();
 }

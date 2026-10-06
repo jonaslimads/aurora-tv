@@ -176,6 +176,7 @@ void settings_initialize(app_settings_t *config, char *conf_dir) {
     config->force_10bit = false;
     config->force_full_color_range = false;
     config->report_gamepad_battery = true;
+    config->log_ship_enabled = false;
     config->hevc = true;
     config->av1 = false;
     config->pyrowave = false;
@@ -280,6 +281,7 @@ bool settings_save(app_settings_t *config) {
     ini_write_bool(fp, "stick_drift_correction", config->stick_drift_correction);
     ini_write_bool(fp, "syskey_capture", config->syskey_capture);
     ini_write_bool(fp, "report_gamepad_battery", config->report_gamepad_battery);
+    ini_write_bool(fp, "log_ship_enabled", config->log_ship_enabled);
 
     ini_write_section(fp, "video");
     ini_write_string(fp, "decoder", config->decoder);
@@ -481,8 +483,11 @@ static int settings_parse(app_settings_t *config, const char *section, const cha
                INI_FULL_MATCH("video", "experimental_frame_pacer") ||
                INI_FULL_MATCH("video", "vsync_pacing") ||
                INI_NAME_MATCH("stream_hud") ||
-               INI_NAME_MATCH("high_priority_stream")) {
-        /* Legacy keys ignored (removed from settings). */
+               INI_NAME_MATCH("high_priority_stream") ||
+               INI_NAME_MATCH("gamepad_compat")) {
+        /* Legacy keys ignored (removed from settings). gamepad_compat is the DualSense
+         * clone probe that stays on wip/gamepad-diagnostics; an ini written there must
+         * not warn here. */
     } else if (INI_FULL_MATCH("video", "force_full_color_range")) {
         config->force_full_color_range = INI_IS_TRUE(value);
     } else if (INI_FULL_MATCH("video", "render_queue_frames")) {
@@ -538,6 +543,8 @@ static int settings_parse(app_settings_t *config, const char *section, const cha
         config->swap_abxy = INI_IS_TRUE(value);
     } else if (INI_NAME_MATCH("report_gamepad_battery")) {
         config->report_gamepad_battery = INI_IS_TRUE(value);
+    } else if (INI_NAME_MATCH("log_ship_enabled")) {
+        config->log_ship_enabled = INI_IS_TRUE(value);
     } else if (INI_NAME_MATCH("syskey_capture")) {
         config->syskey_capture = INI_IS_TRUE(value);
     } else if (INI_FULL_MATCH("video", "decoder")) {

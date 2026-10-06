@@ -17,5 +17,6 @@ target_sources(moonlight-lib PRIVATE
         streaming/hints.c
         help/help.dialog.c
         common/progress_dialog.c
+        common/notice.c
         )
 add_subdirectory(settings)

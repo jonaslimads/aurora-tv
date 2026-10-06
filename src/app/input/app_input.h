@@ -31,6 +31,12 @@ typedef struct app_gamepad_state_t {
     struct gamepad_touchpad_t *touchpad;
 #endif // FEATURE_GAMEPAD_TOUCHPAD_GRAB
     SDL_JoystickGUID guid;
+    /**
+     * Device node SDL bound this pad to (/dev/input/eventN or a hidraw node), kept
+     * for the removal log: whether that node survives the drop separates a USB reset
+     * from SDL giving up on a device that is still there.
+     */
+    char device_path[64];
 #if SDL_VERSION_ATLEAST(2, 0, 14)
     uint32_t serial_crc;
 #endif
