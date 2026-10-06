@@ -321,9 +321,11 @@ app_gamepad_state_t *app_input_gamepad_state_init(app_input_t *input, SDL_GameCo
     state->serial_crc = serial != NULL ? SDL_crc32(0, (const void *) serial, strlen(serial)) : 0;
 #endif
 #if SDL_VERSION_ATLEAST(2, 0, 12)
-    /* SDL pushes a DualSense player-LED output report for this. A pad that only copied
-     * the descriptors can reset on it, so compat mode skips the request. */
     if (!app_input_gamepad_compat(GAMEPAD_COMPAT_NO_PLAYER_LED)) {
+        /* This SDL call makes SDL's PS5 driver write a DualSense output report; log it so
+         * a later drop can be timed against it even though SDL's write is invisible. */
+        commons_log_info("Input", "Controller #%d: asking SDL for player index (SDL writes DualSense report)",
+                         state->gs_id);
         SDL_GameControllerSetPlayerIndex(controller, state->gs_id);
     }
 #endif

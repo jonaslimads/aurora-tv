@@ -62,6 +62,7 @@ struct dualsense_usb_t {
     uint8_t lightbar[3];
     uint8_t player_leds;
     uint8_t mic_led;
+    unsigned writes_sent;
     bool write_fail_logged;
 };
 
@@ -159,6 +160,7 @@ static bool flush_report(dualsense_usb_t *ds) {
     fill_common(report + DS_COMMON_OFF, ds);
 
     ssize_t n = write(ds->fd, report, sizeof(report));
+    ds->writes_sent++;
     if (n != (ssize_t) sizeof(report)) {
         if (!ds->write_fail_logged) {
             commons_log_warn("Input", "DualSense USB write to %s failed: %s (further errors quiet)",
@@ -168,6 +170,15 @@ static bool flush_report(dualsense_usb_t *ds) {
         return false;
     }
     ds->write_fail_logged = false;
+    /* A pad that only borrowed the DualSense descriptors re-enumerates on the bus some
+     * time after an output report it cannot serve, so every write we make is a suspect
+     * for the next drop. Record who asked for it; the count keeps a rumble-heavy game
+     * from becoming the log. */
+    if (ds->writes_sent <= 8 || (ds->writes_sent % 25) == 1) {
+        commons_log_info("Input", "DualSense report 0x02 -> %s ok (#%u, triggers=%d lightbar=%d player_led=%d mic_led=%d)",
+                         ds->path, ds->writes_sent, ds->triggers_owned, ds->lightbar_owned, ds->player_led_owned,
+                         ds->mic_led_owned);
+    }
     return true;
 }
 
@@ -264,6 +275,8 @@ void dualsense_usb_close(dualsense_usb_t *ds) {
         return;
     }
     /* Release trigger resistance so the pad is not left stiff after disconnect. */
+    commons_log_info("Input", "DualSense: sending trigger release to %s (pad still there? %s)", ds->path,
+                     access(ds->path, F_OK) == 0 ? "yes" : "no");
     ds->triggers_owned = true;
     memset(ds->left_effect, 0, sizeof(ds->left_effect));
     memset(ds->right_effect, 0, sizeof(ds->right_effect));
