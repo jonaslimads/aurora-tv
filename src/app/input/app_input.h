@@ -61,6 +61,13 @@ typedef struct app_gamepad_state_t {
 #if SDL_VERSION_ATLEAST(2, 0, 14)
     app_gamepad_sensor_state_t accelState;
     app_gamepad_sensor_state_t gyroState;
+    /**
+     * Motion report rate last pushed to SDL, indexed by motionType-1 (accel, gyro).
+     * Zero means "off, and that is what SDL has", which is true of a freshly opened
+     * controller. Sunshine repeats its motion config every few seconds while a session
+     * is up; without this each repeat is treated as a state change and reaches the pad.
+     */
+    int16_t motion_rate_hz_applied[2];
 #endif
     uint8_t lastBatteryState;
     uint8_t lastBatteryPercentage;

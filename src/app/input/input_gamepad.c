@@ -445,14 +445,18 @@ void app_input_gamepad_set_motion_event_state(app_input_t *input, unsigned short
         return;
     }
     SDL_SensorType sensor_type = SDL_SENSOR_INVALID;
+    int rate_slot = -1;
+    app_gamepad_sensor_state_t *sensor_state = NULL;
     switch (motionType) {
         case LI_MOTION_TYPE_ACCEL:
             sensor_type = SDL_SENSOR_ACCEL;
-            gamepad->accelState.periodMs = reportRateHz > 0 ? 1000 / reportRateHz : 0;
+            rate_slot = 0;
+            sensor_state = &gamepad->accelState;
             break;
         case LI_MOTION_TYPE_GYRO:
             sensor_type = SDL_SENSOR_GYRO;
-            gamepad->gyroState.periodMs = reportRateHz > 0 ? 1000 / reportRateHz : 0;
+            rate_slot = 1;
+            sensor_state = &gamepad->gyroState;
             break;
         default:
             break;
@@ -460,9 +464,19 @@ void app_input_gamepad_set_motion_event_state(app_input_t *input, unsigned short
     if (sensor_type == SDL_SENSOR_INVALID) {
         return;
     }
+    if (gamepad->motion_rate_hz_applied[rate_slot] == (int16_t) reportRateHz) {
+        /* The host re-announces the same rate on a timer (Sunshine does it every few
+         * seconds). There is nothing to apply, and saying so at INFO twice every five
+         * seconds buries the lines that explain a controller dropping off the bus. */
+        commons_log_debug("Input", "Motion state unchanged for controller %d, motionType: %d, reportRateHz: %d",
+                          controllerNumber, motionType, reportRateHz);
+        return;
+    }
+    gamepad->motion_rate_hz_applied[rate_slot] = (int16_t) reportRateHz;
+    sensor_state->periodMs = reportRateHz > 0 ? 1000 / reportRateHz : 0;
     SDL_GameControllerSetSensorEnabled(gamepad->controller, sensor_type, reportRateHz > 0 ? SDL_TRUE : SDL_FALSE);
-    commons_log_info("Input", "Setting motion event state for controller %d, motionType: %d, reportRateHz: %d",
-                     controllerNumber, motionType, reportRateHz);
+    commons_log_info("Input", "Motion state for controller %d: motionType: %d, reportRateHz: %d (%s)",
+                     controllerNumber, motionType, reportRateHz, reportRateHz > 0 ? "on" : "off");
 #else
     (void) input;
     (void) controllerNumber;
