@@ -25,6 +25,13 @@ void app_input_close_gamepad(app_input_t *input, SDL_JoystickID sdl_id);
  */
 int app_input_scan_gamepads(app_input_t *input);
 
+/**
+ * Take the touchpad grabs that have matured. Called every loop iteration; the grab is
+ * deferred after a controller appears so we do not claim the node while the platform's
+ * own input service is still bringing it up.
+ */
+void app_input_update_gamepad_touchpad_grabs(app_input_t *input);
+
 int app_input_get_gamepads_count(app_input_t *input);
 
 short app_input_get_max_gamepads(app_input_t *input);

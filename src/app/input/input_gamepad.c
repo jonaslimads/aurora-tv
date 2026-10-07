@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <SDL_timer.h>
 #include <SDL_version.h>
 #include <Limelight.h>
 #include <assert.h>
@@ -16,6 +17,14 @@
 #include "util/user_event.h"
 #if FEATURE_GAMEPAD_TOUCHPAD_GRAB
 #include "gamepad_touchpad.h"
+
+/**
+ * How long a pad must stay put before we take its touchpad node. The removals seen on a
+ * C5 with a GameSir G8 landed 1.0-2.0 s after the connect that grabbed the node at +30 ms,
+ * so this waits past that window. Long enough that webOS finishes with the device, short
+ * enough that nobody notices a swipe being eaten at the very start of plugging it in.
+ */
+#define TOUCHPAD_GRAB_SETTLE_MS 3000
 #endif
 
 #ifdef TARGET_WEBOS
@@ -96,7 +105,16 @@ bool app_input_init_gamepad(app_input_t *input, int device_index, bool notify) {
         // Keep the platform's input stack away from the controller touchpad, so it
         // can't consume swipes as system gestures. SDL's own touchpad events are
         // unaffected.
-        state->touchpad = gamepad_touchpad_grab(controller);
+        //
+        // Deliberately not taken here. An EVIOCGRAB issued within ~100 ms of the device
+        // appearing lands while webOS' own input service is still enumerating that same
+        // node, and on a pad that borrowed its descriptors from someone else (a GameSir
+        // G8 reporting itself as a Sony DualSense) the device then re-enumerates on the
+        // bus 1-2 s later: connect, grab, gone, connect. Take it once the pad has proven
+        // it is staying - see app_input_update_gamepad_touchpad_grabs().
+        state->touchpad_grab_due_ms = SDL_GetTicks() + TOUCHPAD_GRAB_SETTLE_MS;
+        commons_log_info("Input", "Controller #%d touchpad grab deferred %d ms", state->gs_id,
+                         TOUCHPAD_GRAB_SETTLE_MS);
 #endif
         input->activeGamepadMask |= 1 << state->gs_id;
         input->gamepads_count++;
@@ -110,6 +128,35 @@ bool app_input_init_gamepad(app_input_t *input, int device_index, bool notify) {
         commons_log_warn("Input", "Unrecognized game controller %s. GUID: %s", name, guidstr);
     }
     return false;
+}
+
+/**
+ * Take touchpad grabs that have matured. Called from the main loop, so the deferral works
+ * in the launcher as well as in a stream. A pad that re-enumerated before its delay
+ * elapsed is never grabbed while it is unstable: its new connect arms a fresh delay.
+ */
+void app_input_update_gamepad_touchpad_grabs(app_input_t *input) {
+#if FEATURE_GAMEPAD_TOUCHPAD_GRAB
+    if (input->gamepads_count == 0) {
+        return;
+    }
+    Uint32 now = SDL_GetTicks();
+    for (int i = 0; i < input->max_num_gamepads; i++) {
+        app_gamepad_state_t *state = &input->gamepads[i];
+        if (state->controller == NULL || state->touchpad != NULL || state->touchpad_grab_due_ms == 0) {
+            continue;
+        }
+        if ((Sint32) (now - state->touchpad_grab_due_ms) < 0) {
+            continue;
+        }
+        state->touchpad_grab_due_ms = 0;
+        state->touchpad = gamepad_touchpad_grab(state->controller);
+        commons_log_info("Input", "Controller #%d touchpad grab taken %d ms after it appeared", state->gs_id,
+                         TOUCHPAD_GRAB_SETTLE_MS);
+    }
+#else
+    (void) input;
+#endif
 }
 
 int app_input_scan_gamepads(app_input_t *input) {
@@ -249,6 +296,8 @@ static void app_input_log_removal_context(const app_gamepad_state_t *state, SDL_
 #if FEATURE_GAMEPAD_TOUCHPAD_GRAB
     if (state->touchpad != NULL) {
         commons_log_warn("Input", "Controller #%d held an exclusive touchpad grab when it was removed", state->gs_id);
+    } else if (state->touchpad_grab_due_ms != 0) {
+        commons_log_info("Input", "Controller #%d was removed before its deferred touchpad grab was taken", state->gs_id);
     }
 #endif
 #ifdef TARGET_WEBOS

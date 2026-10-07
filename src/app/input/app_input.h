@@ -29,6 +29,11 @@ typedef struct app_gamepad_state_t {
     SDL_GameController *controller;
 #if FEATURE_GAMEPAD_TOUCHPAD_GRAB
     struct gamepad_touchpad_t *touchpad;
+    /**
+     * Uptime ms at which taking the touchpad grab becomes allowed; 0 once taken, or when
+     * there is nothing pending. Never taken in the open path - see TOUCHPAD_GRAB_SETTLE_MS.
+     */
+    Uint32 touchpad_grab_due_ms;
 #endif // FEATURE_GAMEPAD_TOUCHPAD_GRAB
     SDL_JoystickGUID guid;
     /**

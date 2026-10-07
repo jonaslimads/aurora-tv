@@ -6,6 +6,7 @@
 #include "lvgl/util/lv_app_utils.h"
 
 #include "app.h"
+#include "input/input_gamepad.h"
 #include "config.h"
 
 #include "logging.h"
@@ -305,6 +306,9 @@ static int app_event_filter(void *userdata, SDL_Event *event) {
 void app_process_events(app_t *app) {
     SDL_PumpEvents();
     SDL_FilterEvents(app_event_filter, app);
+    /* Not inside the session check: a controller that keeps re-enumerating does that in
+     * the launcher too, and its touchpad must be ours once it has settled. */
+    app_input_update_gamepad_touchpad_grabs(&app->input);
     if (app->session != NULL) {
         session_update_touchpad_tap_hold(app->session);
         session_update_gamepad_stability(app->session);
