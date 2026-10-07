@@ -27,6 +27,140 @@
 #define TOUCHPAD_GRAB_SETTLE_MS 3000
 #endif
 
+/**
+ * How long a controller that we opened and then lost stays untouched, and how that wait
+ * grows while the device keeps dying. The storm captured on a C5 with a GameSir G8: we
+ * open the pad, it leaves the bus 0.5-1.9 s later with SDL listing zero devices, and the
+ * next scan (the loop runs at ~1 kHz, and hotplug fires as soon as it is back) opens it
+ * again about 0.5 s later. Whatever takes the pad out, reopening it half a second after
+ * it died is not how it gets to settle. The window also answers a question the old build
+ * could not: while we deliberately keep our hands off it, does the device stay alive?
+ */
+#define GAMEPAD_RETRY_FIRST_MS 3000
+#define GAMEPAD_RETRY_MAX_MS 30000
+
+/** Do not repeat the hold-off log more often than this; the loop runs at ~1 kHz. */
+#define GAMEPAD_RETRY_ANNOUNCE_MS 2000
+
+/** A pad of this GUID that has stayed with us this long ends the incident. */
+#define GAMEPAD_HEALTHY_MS 10000
+
+/** A GUID whose device never came back is a different incident next time it appears. */
+#define GAMEPAD_RETRY_FORGET_MS 60000
+
+#define GAMEPAD_RETRY_SLOTS 4
+
+typedef struct {
+    SDL_JoystickGUID guid;
+    bool used;
+    /** Absolute uptime ms until which opening this GUID is refused. */
+    Uint32 retry_after_ms;
+    Uint32 announced_ms;
+    int strikes;
+} gamepad_retry_t;
+
+static gamepad_retry_t gamepad_retry[GAMEPAD_RETRY_SLOTS];
+
+static bool gamepad_guid_same(SDL_JoystickGUID a, SDL_JoystickGUID b) {
+    return memcmp(a.data, b.data, sizeof(a.data)) == 0;
+}
+
+static gamepad_retry_t *gamepad_retry_find(SDL_JoystickGUID guid) {
+    for (int i = 0; i < GAMEPAD_RETRY_SLOTS; i++) {
+        if (gamepad_retry[i].used && gamepad_guid_same(gamepad_retry[i].guid, guid)) {
+            return &gamepad_retry[i];
+        }
+    }
+    return NULL;
+}
+
+static gamepad_retry_t *gamepad_retry_claim(SDL_JoystickGUID guid) {
+    gamepad_retry_t *entry = gamepad_retry_find(guid);
+    if (entry != NULL) {
+        return entry;
+    }
+    for (int i = 0; i < GAMEPAD_RETRY_SLOTS; i++) {
+        if (!gamepad_retry[i].used) {
+            entry = &gamepad_retry[i];
+            entry->used = true;
+            entry->guid = guid;
+            entry->strikes = 0;
+            entry->announced_ms = 0;
+            return entry;
+        }
+    }
+    /* All slots busy: the one whose window ends soonest gives way. */
+    entry = &gamepad_retry[0];
+    for (int i = 1; i < GAMEPAD_RETRY_SLOTS; i++) {
+        if ((Sint32) (gamepad_retry[i].retry_after_ms - entry->retry_after_ms) < 0) {
+            entry = &gamepad_retry[i];
+        }
+    }
+    entry->guid = guid;
+    entry->strikes = 0;
+    entry->announced_ms = 0;
+    return entry;
+}
+
+static void gamepad_retry_release(gamepad_retry_t *entry) {
+    memset(entry, 0, sizeof(*entry));
+}
+
+/**
+ * Refuse an opening until the hold-off has run out. Checked at the one place a pad is
+ * opened, so the scan, the hotplug event and a stream start are all subject to it.
+ */
+static bool gamepad_retry_allows(SDL_JoystickGUID guid, Uint32 now) {
+    gamepad_retry_t *entry = gamepad_retry_find(guid);
+    if (entry == NULL) {
+        return true;
+    }
+    if (SDL_TICKS_PASSED(now, entry->retry_after_ms + GAMEPAD_RETRY_FORGET_MS)) {
+        gamepad_retry_release(entry);
+        return true;
+    }
+    if (SDL_TICKS_PASSED(now, entry->retry_after_ms)) {
+        commons_log_info("Input", "Hold-off over, opening the controller again (strike %d)", entry->strikes);
+        gamepad_retry_release(entry);
+        return true;
+    }
+    if (entry->announced_ms == 0 || SDL_TICKS_PASSED(now, entry->announced_ms + GAMEPAD_RETRY_ANNOUNCE_MS)) {
+        entry->announced_ms = now;
+        commons_log_info("Input", "Controller lost, leaving it alone for %d ms more; SDL lists %d device(s)",
+                         (int) (entry->retry_after_ms - now), SDL_NumJoysticks());
+    }
+    return false;
+}
+
+static void gamepad_retry_arm(SDL_JoystickGUID guid, Uint32 opened_ms) {
+    gamepad_retry_t *entry = gamepad_retry_claim(guid);
+    entry->strikes++;
+    int shift = entry->strikes - 1;
+    if (shift > 4) {
+        shift = 4;
+    }
+    int wait = GAMEPAD_RETRY_FIRST_MS << shift;
+    if (wait > GAMEPAD_RETRY_MAX_MS) {
+        wait = GAMEPAD_RETRY_MAX_MS;
+    }
+    Uint32 now = SDL_GetTicks();
+    entry->retry_after_ms = now + wait;
+    entry->announced_ms = 0;
+    char guidstr[33];
+    SDL_JoystickGetGUIDString(guid, guidstr, sizeof(guidstr));
+    commons_log_warn("Input", "Controller %s was ours for %d ms, strike %d; not touching it for %d ms", guidstr,
+                     (int) (now - opened_ms), entry->strikes, wait);
+}
+
+/** Forget the strikes of a pad that has stayed with us, so a later glitch starts fresh. */
+static void gamepad_retry_forget(SDL_JoystickGUID guid, Uint32 opened_ms, Uint32 now) {
+    gamepad_retry_t *entry = gamepad_retry_find(guid);
+    if (entry != NULL && SDL_TICKS_PASSED(now, opened_ms + GAMEPAD_HEALTHY_MS)) {
+        commons_log_info("Input", "Controller has held for %d ms; retry strikes cleared", GAMEPAD_HEALTHY_MS);
+        gamepad_retry_release(entry);
+    }
+}
+
 #ifdef TARGET_WEBOS
 #include <dirent.h>
 #include <errno.h>
@@ -58,6 +192,11 @@ bool app_input_init_gamepad(app_input_t *input, int device_index, bool notify) {
     SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(device_index);
     char guidstr[33];
     SDL_JoystickGetGUIDString(guid, guidstr, 33);
+    /* First thing, before SDL_JoystickNameForIndex: naming a device makes SDL open it,
+     * so a device we are refusing has to be refused without being touched at all. */
+    if (!gamepad_retry_allows(guid, SDL_GetTicks())) {
+        return false;
+    }
     const char *name = SDL_JoystickNameForIndex(device_index);
 #if SDL_VERSION_ATLEAST(2, 0, 6)
     /* Scan at init/stream start plus JOY/CONTROLLER DEVICEADDED can all see the
@@ -116,6 +255,7 @@ bool app_input_init_gamepad(app_input_t *input, int device_index, bool notify) {
         commons_log_info("Input", "Controller #%d touchpad grab deferred %d ms", state->gs_id,
                          TOUCHPAD_GRAB_SETTLE_MS);
 #endif
+        state->opened_ms = SDL_GetTicks();
         input->activeGamepadMask |= 1 << state->gs_id;
         input->gamepads_count++;
         if (notify) {
@@ -135,28 +275,35 @@ bool app_input_init_gamepad(app_input_t *input, int device_index, bool notify) {
  * in the launcher as well as in a stream. A pad that re-enumerated before its delay
  * elapsed is never grabbed while it is unstable: its new connect arms a fresh delay.
  */
-void app_input_update_gamepad_touchpad_grabs(app_input_t *input) {
-#if FEATURE_GAMEPAD_TOUCHPAD_GRAB
+/**
+ * Per-loop housekeeping for the controllers: take the touchpad grabs that have matured,
+ * and clear the retry strikes of a pad that has plainly settled. Runs from the main loop,
+ * so it works in the launcher as well as in a stream.
+ */
+void app_input_update_gamepads(app_input_t *input) {
     if (input->gamepads_count == 0) {
         return;
     }
     Uint32 now = SDL_GetTicks();
     for (int i = 0; i < input->max_num_gamepads; i++) {
         app_gamepad_state_t *state = &input->gamepads[i];
-        if (state->controller == NULL || state->touchpad != NULL || state->touchpad_grab_due_ms == 0) {
+        if (state->controller == NULL) {
             continue;
         }
-        if ((Sint32) (now - state->touchpad_grab_due_ms) < 0) {
+        gamepad_retry_forget(state->guid, state->opened_ms, now);
+#if FEATURE_GAMEPAD_TOUCHPAD_GRAB
+        /* A pad that re-enumerated before its delay elapsed is never grabbed while it is
+         * unstable: its new connect arms a fresh delay. */
+        if (state->touchpad != NULL || state->touchpad_grab_due_ms == 0 ||
+            (Sint32) (now - state->touchpad_grab_due_ms) < 0) {
             continue;
         }
         state->touchpad_grab_due_ms = 0;
         state->touchpad = gamepad_touchpad_grab(state->controller);
         commons_log_info("Input", "Controller #%d touchpad grab taken %d ms after it appeared", state->gs_id,
                          TOUCHPAD_GRAB_SETTLE_MS);
-    }
-#else
-    (void) input;
 #endif
+    }
 }
 
 int app_input_scan_gamepads(app_input_t *input) {
@@ -210,6 +357,7 @@ void app_input_close_gamepad(app_input_t *input, SDL_JoystickID sdl_id) {
     gamepad_touchpad_release(state->touchpad);
     state->touchpad = NULL;
 #endif
+    gamepad_retry_arm(state->guid, state->opened_ms);
     app_input_log_removal_context(state, sdl_id);
     SDL_GameControllerClose(state->controller);
     commons_log_info("Input", "Controller #%d disconnected, sdl_id: %d", state->gs_id, sdl_id);
@@ -224,12 +372,22 @@ static void app_input_notify_gamepad_presence(short gs_id, bool present) {
 
 #ifdef TARGET_WEBOS
 /** Every /dev/input node the app can reach, with the HID name behind it. */
-static void app_input_log_dev_input_nodes(void) {
+/**
+ * Inventory of the input nodes, taken while a removal is being handled.
+ *
+ * Stats only, except for the node this pad was bound to. An earlier version opened every
+ * node to read its HID name, which made this diagnostic one of the things poking at
+ * devices while they are unstable, and cost about thirty shipped lines per removal. The
+ * node count is enough to see a storm churning the device list; whether our own node
+ * survives is the one question that needs an open().
+ */
+static void app_input_log_dev_input_nodes(const char *own_path) {
     DIR *dir = opendir("/dev/input");
     if (dir == NULL) {
         commons_log_warn("Input", "Removal context: /dev/input is not readable (%s)", strerror(errno));
         return;
     }
+    int present = 0;
     struct dirent *ent;
     while ((ent = readdir(dir)) != NULL) {
         if (strncmp(ent->d_name, "event", 5) != 0) {
@@ -239,25 +397,28 @@ static void app_input_log_dev_input_nodes(void) {
         snprintf(path, sizeof(path), "/dev/input/%s", ent->d_name);
         struct stat st;
         if (stat(path, &st) != 0) {
-            commons_log_warn("Input", "Removal context: %s cannot be stat'ed (%s)", path, strerror(errno));
-            continue;
+            continue; // vanished while we walked the directory
         }
-        int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-        if (fd < 0) {
-            commons_log_warn("Input", "Removal context: %s exists (dev %u:%u) but will not open (%s)", path,
-                             major(st.st_rdev), minor(st.st_rdev), strerror(errno));
-            continue;
-        }
-        char name[128];
-        memset(name, 0, sizeof(name));
-        if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name) < 0) {
-            snprintf(name, sizeof(name), "(no name)");
-        }
-        close(fd);
-        commons_log_info("Input", "Removal context: %s exists (dev %u:%u) name='%s'", path, major(st.st_rdev),
-                         minor(st.st_rdev), name);
+        present++;
     }
     closedir(dir);
+    commons_log_info("Input", "Removal context: %d /dev/input event node(s) in the device table", present);
+
+    if (own_path == NULL || strncmp(own_path, "/dev/", 5) != 0) {
+        return;
+    }
+    int fd = open(own_path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) {
+        commons_log_warn("Input", "Removal context: our own node %s will not open (%s)", own_path, strerror(errno));
+        return;
+    }
+    char name[128];
+    memset(name, 0, sizeof(name));
+    if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name) < 0) {
+        snprintf(name, sizeof(name), "(no name)");
+    }
+    close(fd);
+    commons_log_info("Input", "Removal context: our own node %s is alive, name='%s'", own_path, name);
 }
 #endif
 
@@ -301,7 +462,7 @@ static void app_input_log_removal_context(const app_gamepad_state_t *state, SDL_
     }
 #endif
 #ifdef TARGET_WEBOS
-    app_input_log_dev_input_nodes();
+    app_input_log_dev_input_nodes(state->device_path[0] != '\0' ? state->device_path : NULL);
 #endif
 }
 

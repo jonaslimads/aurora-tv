@@ -308,7 +308,7 @@ void app_process_events(app_t *app) {
     SDL_FilterEvents(app_event_filter, app);
     /* Not inside the session check: a controller that keeps re-enumerating does that in
      * the launcher too, and its touchpad must be ours once it has settled. */
-    app_input_update_gamepad_touchpad_grabs(&app->input);
+    app_input_update_gamepads(&app->input);
     if (app->session != NULL) {
         session_update_touchpad_tap_hold(app->session);
         session_update_gamepad_stability(app->session);

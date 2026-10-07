@@ -114,7 +114,11 @@ static void ship_start(void) {
     ship_broadcast.sin_family = AF_INET;
     ship_broadcast.sin_port = ship_target.sin_port;
     ship_broadcast.sin_addr.s_addr = INADDR_BROADCAST;
-    ship_has_broadcast = true;
+    /* Only when the target itself is the broadcast address. Sending a second copy to
+     * 255.255.255.255 next to the unicast one doubled every shipped line at the receiver,
+     * which both reads as duplication in the log and doubles the cost of the log path in
+     * the very window we are measuring. */
+    ship_has_broadcast = ship_has_target && ship_target.sin_addr.s_addr == INADDR_BROADCAST;
 
     if (!ship_has_target) {
         commons_log_warn("LogShip", "Target '%s' did not resolve; log shipping stays off", spec);

@@ -36,6 +36,8 @@ typedef struct app_gamepad_state_t {
     Uint32 touchpad_grab_due_ms;
 #endif // FEATURE_GAMEPAD_TOUCHPAD_GRAB
     SDL_JoystickGUID guid;
+    /** Uptime ms at which this pad was opened; used to decide the incident is over. */
+    Uint32 opened_ms;
     /**
      * Device node SDL bound this pad to (/dev/input/eventN or a hidraw node), kept
      * for the removal log: whether that node survives the drop separates a USB reset
